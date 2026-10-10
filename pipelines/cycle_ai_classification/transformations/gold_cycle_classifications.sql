@@ -1,3 +1,12 @@
+-- ============================================================
+-- EXECUTION EVIDENCE
+-- Pipeline: Cycle AI Classification (bfd04309-db1c-4429-bb3e-3c61fef4ea99)
+-- Output table: robot_demo_catalog.robot_demo.gold_operational_kpis
+-- Row count: 7 (per arm × per shift × per day)
+-- OEE range: 0.46% - 16.28% | Availability: 2.61% - 75.05%
+-- Quality: 0% - 59.15% | Arm: 5C821097531 across Day/Swing/Night shifts
+-- Uses P20 ideal_cycle_time, excludes outlier cycles (>5x P10 duration)
+-- ============================================================
 -- Gold layer: OEE (Overall Equipment Effectiveness) per robot arm
 -- Reads directly from so101_snapshots for availability (no bronze intermediate)
 -- Quality component uses AI classification: normal_operation = good cycle

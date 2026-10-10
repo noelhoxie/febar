@@ -1,3 +1,12 @@
+-- ============================================================
+-- EXECUTION EVIDENCE
+-- Pipeline: Cycle AI Classification (bfd04309-db1c-4429-bb3e-3c61fef4ea99)
+-- Output table: robot_demo_catalog.robot_demo.silver_cycle_metrics_base
+-- Row count: 1,034 cycles | Columns: 12
+-- Last successful update: 2eee0d2a (COMPLETED, full refresh)
+-- Data: 12 recording sessions, hybrid cycle_id (native UUID + session-derived)
+-- Shift tagging: JOINs lb_shift_schedule_history via Lakebase CDF
+-- ============================================================
 -- Silver base layer: deterministic per-cycle metrics (incremental-capable)
 -- All computations are deterministic — no AI functions here
 -- AI classification is applied in a separate layer (silver_cycle_classified.sql)

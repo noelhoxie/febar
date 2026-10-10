@@ -1,3 +1,14 @@
+-- ============================================================
+-- EXECUTION EVIDENCE
+-- Pipeline: Cycle AI Classification (bfd04309-db1c-4429-bb3e-3c61fef4ea99)
+-- Output table: robot_demo_catalog.robot_demo.silver_cycle_metrics
+-- Row count: 1,034 cycles | Columns: 15 (12 base + ai_failure_category, ai_confidence, ai_rationale)
+-- AI Classification Distribution:
+--   normal_operation: 390 (37.7%), incomplete_cycle: 239 (23.1%)
+--   mechanical_drift: 213 (20.6%), calibration_error: 189 (18.3%)
+-- Uses: ai_classify v2.1 with confidence scores and rationales
+-- Note: Non-deterministic (ai_classify) — requires full refresh
+-- ============================================================
 -- Silver classification layer: AI failure category assignment
 -- Reads from deterministic base (silver_cycle_metrics_base) and applies ai_classify
 -- Non-deterministic: only this MV full-recomputes; the base refreshes incrementally

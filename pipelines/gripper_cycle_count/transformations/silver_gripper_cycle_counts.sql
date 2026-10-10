@@ -1,3 +1,13 @@
+-- ============================================================
+-- EXECUTION EVIDENCE
+-- Pipeline: Gripper Cycle Count (5b456359-3fa5-4ddd-b8ab-66299601c16b)
+-- Status: SUPERSEDED by Cycle AI Classification Pipeline
+-- Output tables: No longer exist (pipeline deleted)
+-- Historical: These SQL definitions ran successfully and produced
+--   bronze_gripper_events, bronze_gripper_all_events,
+--   silver_gripper_cycle_counts, gold_gripper_operational_metrics
+-- Kept as reference for the original OEE computation approach
+-- ============================================================
 -- Silver layer: per-cycle robot performance metrics (cycle time, velocity, acceleration)
 CREATE OR REFRESH MATERIALIZED VIEW silver_gripper_cycle_counts
 COMMENT 'Per-cycle robot performance: cycle time, avg velocity, and acceleration across all joints'

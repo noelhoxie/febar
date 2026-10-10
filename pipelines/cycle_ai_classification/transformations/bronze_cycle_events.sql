@@ -1,1 +1,6 @@
+-- ============================================================
+-- STATUS: DEPRECATED — No output table exists
+-- Reason: Bronze layer removed; silver reads directly from so101_snapshots
+-- Kept for historical reference only
+-- ============================================================
 -- Deprecated: cycling events are now parsed directly in silver_cycle_metrics
