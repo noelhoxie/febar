@@ -1,0 +1,1 @@
+-- Deprecated: all events are now parsed directly in gold_operational_kpis

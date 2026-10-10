@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<!-- FULL REPLACEMENT -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gripper Maintenance Monitor</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+
+    .alert-bar { padding: 14px 24px; font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 12px; transition: background 0.4s; }
+    .alert-bar.ok { background: linear-gradient(90deg, #065f46, #047857); }
+    .alert-bar.warn { background: linear-gradient(90deg, #92400e, #b45309); }
+    .alert-bar.critical { background: linear-gradient(90deg, #991b1b, #dc2626); animation: pulse-bg 2s infinite; }
+    @keyframes pulse-bg { 0%,100% { opacity:1; } 50% { opacity:0.85; } }
+    .alert-icon { font-size: 22px; }
+
+    .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+    .header h1 { font-size: 26px; font-weight: 800; background: linear-gradient(135deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .live-badge { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #94a3b8; }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; animation: blink 1.5s infinite; }
+    @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+    .arm-label { font-size: 14px; color: #94a3b8; margin-bottom: 20px; font-weight: 500; }
+    .arm-label span { color: #60a5fa; font-weight: 700; }
+
+    .gauges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 28px; }
+    .gauge-card { background: #1a1d2e; border-radius: 16px; padding: 24px; text-align: center; border: 1px solid #2d3148; transition: border-color 0.3s; }
+    .gauge-card:hover { border-color: #4f5a80; }
+    .gauge-label { font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; font-weight: 600; }
+    .gauge-svg { width: 140px; height: 140px; margin: 0 auto 12px; }
+    .gauge-value { font-size: 32px; font-weight: 800; }
+    .gauge-sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+
+    .alerts-section { margin-bottom: 28px; }
+    .alerts-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 14px; color: #e2e8f0; }
+    .alert-item { background: #1a1d2e; border-radius: 12px; padding: 16px 20px; margin-bottom: 10px; display: flex; align-items: center; gap: 14px; border-left: 4px solid; }
+    .alert-item.red { border-left-color: #ef4444; }
+    .alert-item.yellow { border-left-color: #eab308; }
+    .alert-item.green { border-left-color: #22c55e; }
+    .alert-item .a-icon { font-size: 20px; }
+    .alert-item .a-text { font-size: 14px; font-weight: 500; }
+    .alert-item .a-val { margin-left: auto; font-size: 14px; font-weight: 700; color: #94a3b8; }
+
+    .table-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 14px; color: #e2e8f0; }
+    table { width: 100%; border-collapse: collapse; background: #1a1d2e; border-radius: 12px; overflow: hidden; }
+    th { background: #252940; padding: 14px 18px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; font-weight: 600; }
+    td { padding: 14px 18px; font-size: 14px; border-top: 1px solid #2d3148; font-variant-numeric: tabular-nums; }
+    tr:hover td { background: #1e2236; }
+
+    .status-chip { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .status-chip.good { background: #064e3b; color: #34d399; }
+    .status-chip.warn { background: #451a03; color: #fbbf24; }
+    .status-chip.bad { background: #450a0a; color: #f87171; }
+
+    .loading { display: flex; justify-content: center; align-items: center; min-height: 60vh; font-size: 18px; color: #64748b; }
+    .error-box { background: #450a0a; border: 1px solid #dc2626; border-radius: 12px; padding: 20px; color: #fca5a5; margin: 20px 0; }
+
+    .schedule-section { margin-top: 32px; margin-bottom: 28px; }
+    .schedule-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 14px; color: #e2e8f0; display: flex; align-items: center; gap: 10px; }
+    .schedule-section h2 .badge { font-size: 11px; background: #1e40af; color: #93c5fd; padding: 2px 10px; border-radius: 12px; font-weight: 600; }
+    .sched-table { width: 100%; border-collapse: collapse; background: #1a1d2e; border-radius: 12px; overflow: hidden; }
+    .sched-table th { background: #252940; padding: 12px 16px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; font-weight: 600; }
+    .sched-table td { padding: 12px 16px; font-size: 14px; border-top: 1px solid #2d3148; }
+    .sched-table tr:hover td { background: #1e2236; }
+    .active-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .active-dot.on { background: #22c55e; }
+    .active-dot.off { background: #64748b; }
+    .btn { padding: 6px 14px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s; }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-secondary { background: #374151; color: #e2e8f0; }
+    .btn-secondary:hover { background: #4b5563; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .form-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: flex-end; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+    .form-group input, .form-group select { background: #252940; border: 1px solid #3d4260; border-radius: 8px; padding: 8px 12px; color: #e2e8f0; font-size: 13px; outline: none; }
+    .form-group input:focus, .form-group select:focus { border-color: #3b82f6; }
+    .form-card { background: #1a1d2e; border-radius: 12px; padding: 20px; border: 1px solid #2d3148; margin-bottom: 16px; }
+
+    @media (max-width: 900px) { .gauges { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 500px) { .gauges { grid-template-columns: 1fr; } .form-row { flex-direction: column; } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+    const THRESHOLDS = {
+      oee: { warn: 65, critical: 50 },
+      availability: { warn: 75, critical: 60 },
+      quality: { warn: 95, critical: 90 },
+      defectRate: { warn: 5, critical: 10 }
+    };
+
+    function getColor(value, metric) {
+      const t = THRESHOLDS[metric];
+      if (!t) return '#22c55e';
+      if (metric === 'defectRate') {
+        if (value >= t.critical) return '#ef4444';
+        if (value >= t.warn) return '#eab308';
+        return '#22c55e';
+      }
+      if (value <= t.critical) return '#ef4444';
+      if (value <= t.warn) return '#eab308';
+      return '#22c55e';
+    }
+
+    function getLevel(value, metric) {
+      const t = THRESHOLDS[metric];
+      if (!t) return 'good';
+      if (metric === 'defectRate') {
+        if (value >= t.critical) return 'bad';
+        if (value >= t.warn) return 'warn';
+        return 'good';
+      }
+      if (value <= t.critical) return 'bad';
+      if (value <= t.warn) return 'warn';
+      return 'good';
+    }
+
+    function GaugeRing({ value, color, label }) {
+      const pct = Math.min(Math.max(value, 0), 100);
+      const r = 56, circ = 2 * Math.PI * r;
+      const offset = circ - (pct / 100) * circ;
+      return (
+        <svg className="gauge-svg" viewBox="0 0 140 140">
+          <circle cx="70" cy="70" r={r} fill="none" stroke="#2d3148" strokeWidth="12" />
+          <circle cx="70" cy="70" r={r} fill="none" stroke={color} strokeWidth="12"
+            strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset}
+            transform="rotate(-90 70 70)" style={{ transition: 'stroke-dashoffset 1s ease' }} />
+          <text x="70" y="65" textAnchor="middle" fill="#e2e8f0" fontSize="28" fontWeight="800">{pct.toFixed(1)}</text>
+          <text x="70" y="85" textAnchor="middle" fill="#64748b" fontSize="12">%</text>
+        </svg>
+      );
+    }
+
+    function AlertBar({ alerts }) {
+      const hasCritical = alerts.some(a => a.level === 'bad');
+      const hasWarn = alerts.some(a => a.level === 'warn');
+      const cls = hasCritical ? 'critical' : hasWarn ? 'warn' : 'ok';
+      const icon = hasCritical ? '\u26a0\ufe0f' : hasWarn ? '\u26a0\ufe0f' : '\u2705';
+      const msg = hasCritical
+        ? 'MAINTENANCE REQUIRED - Critical thresholds exceeded'
+        : hasWarn
+        ? 'ATTENTION - Performance approaching maintenance thresholds'
+        : 'ALL SYSTEMS NOMINAL - No maintenance action required';
+      return <div className={`alert-bar ${cls}`}><span className="alert-icon">{icon}</span>{msg}</div>;
+    }
+
+    function buildAlerts(row) {
+      const alerts = [];
+      const oee = row.oee_pct || 0;
+      const avail = parseFloat(row.availability_pct) || 0;
+      const quality = parseFloat(row.quality_pct) || 0;
+      const defRate = row.total_cycles > 0 ? (row.defective_cycles / row.total_cycles) * 100 : 0;
+
+      alerts.push({ metric: 'OEE', value: `${oee.toFixed(1)}%`, level: getLevel(oee, 'oee'),
+        text: oee <= THRESHOLDS.oee.critical ? `OEE critically low at ${oee.toFixed(1)}%` : oee <= THRESHOLDS.oee.warn ? `OEE below target at ${oee.toFixed(1)}%` : `OEE healthy at ${oee.toFixed(1)}%` });
+      alerts.push({ metric: 'Availability', value: `${avail.toFixed(1)}%`, level: getLevel(avail, 'availability'),
+        text: avail <= THRESHOLDS.availability.critical ? `Availability critically low - check for jams or mechanical issues` : avail <= THRESHOLDS.availability.warn ? `Availability declining - schedule inspection` : `Availability nominal` });
+      alerts.push({ metric: 'Quality', value: `${quality.toFixed(1)}%`, level: getLevel(quality, 'quality'),
+        text: quality <= THRESHOLDS.quality.critical ? `High defect rate - gripper calibration needed` : quality <= THRESHOLDS.quality.warn ? `Quality declining - monitor gripper travel` : `Quality within spec` });
+      alerts.push({ metric: 'Defect Rate', value: `${defRate.toFixed(1)}%`, level: getLevel(defRate, 'defectRate'),
+        text: defRate >= THRESHOLDS.defectRate.critical ? `Defect rate critical - immediate maintenance required` : defRate >= THRESHOLDS.defectRate.warn ? `Defect rate elevated - investigate gripper alignment` : `Defect rate acceptable` });
+      return alerts;
+    }
+
+    function SchedulePanel() {
+      const [schedules, setSchedules] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [editId, setEditId] = useState(null);
+      const [form, setForm] = useState({ shift_name: '', start_time: '06:00', end_time: '14:00', arm_serial: '', is_active: true });
+
+      const fetchSchedules = useCallback(async () => {
+        try {
+          const res = await fetch('/api/schedules');
+          const json = await res.json();
+          if (json.error) { setError(json.error); return; }
+          setSchedules(json.data);
+          setError(null);
+        } catch (e) { setError(e.message); }
+        finally { setLoading(false); }
+      }, []);
+
+      useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
+
+      const resetForm = () => { setForm({ shift_name: '', start_time: '06:00', end_time: '14:00', arm_serial: '', is_active: true }); setEditId(null); };
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        const payload = { ...form, arm_serial: form.arm_serial || null };
+        try {
+          const url = editId ? `/api/schedules/${editId}` : '/api/schedules';
+          const method = editId ? 'PUT' : 'POST';
+          const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          const json = await res.json();
+          if (json.error) { setError(json.error); return; }
+          resetForm();
+          fetchSchedules();
+        } catch (e) { setError(e.message); }
+      };
+
+      const handleEdit = (s) => {
+        setForm({ shift_name: s.shift_name, start_time: s.start_time.slice(0, 5), end_time: s.end_time.slice(0, 5), arm_serial: s.arm_serial || '', is_active: s.is_active });
+        setEditId(s.id);
+      };
+
+      const handleDelete = async (id) => {
+        if (!confirm('Delete this shift?')) return;
+        try {
+          await fetch(`/api/schedules/${id}`, { method: 'DELETE' });
+          fetchSchedules();
+        } catch (e) { setError(e.message); }
+      };
+
+      if (loading) return <div style={{ color: '#64748b', padding: '12px' }}>Loading schedules...</div>;
+
+      return (
+        <div className="schedule-section">
+          <h2>Shift Schedule <span className="badge">Lakebase Postgres</span></h2>
+          {error && <div className="error-box" style={{ marginBottom: 12 }}>Error: {error}</div>}
+
+          <div className="form-card">
+            <form onSubmit={handleSubmit}>
+              <div className="form-row">
+                <div className="form-group" style={{ flex: '1 1 160px' }}>
+                  <label>Shift Name</label>
+                  <input value={form.shift_name} onChange={e => setForm({ ...form, shift_name: e.target.value })} placeholder="e.g. Day Shift" required />
+                </div>
+                <div className="form-group" style={{ flex: '0 0 120px' }}>
+                  <label>Start Time</label>
+                  <input type="time" value={form.start_time} onChange={e => setForm({ ...form, start_time: e.target.value })} required />
+                </div>
+                <div className="form-group" style={{ flex: '0 0 120px' }}>
+                  <label>End Time</label>
+                  <input type="time" value={form.end_time} onChange={e => setForm({ ...form, end_time: e.target.value })} required />
+                </div>
+                <div className="form-group" style={{ flex: '0 0 160px' }}>
+                  <label>Arm Serial (optional)</label>
+                  <input value={form.arm_serial} onChange={e => setForm({ ...form, arm_serial: e.target.value })} placeholder="All arms" />
+                </div>
+                <div className="form-group" style={{ flex: '0 0 80px' }}>
+                  <label>Active</label>
+                  <select value={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.value === 'true' })}>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ justifyContent: 'flex-end' }}>
+                  <button type="submit" className="btn btn-primary">{editId ? 'Update' : 'Add Shift'}</button>
+                </div>
+                {editId && (
+                  <div className="form-group" style={{ justifyContent: 'flex-end' }}>
+                    <button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button>
+                  </div>
+                )}
+              </div>
+            </form>
+          </div>
+
+          <table className="sched-table">
+            <thead><tr><th>Shift Name</th><th>Start</th><th>End</th><th>Arm</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {schedules.map(s => (
+                <tr key={s.id}>
+                  <td style={{ fontWeight: 600 }}>{s.shift_name}</td>
+                  <td>{s.start_time.slice(0, 5)}</td>
+                  <td>{s.end_time.slice(0, 5)}</td>
+                  <td>{s.arm_serial || 'All'}</td>
+                  <td><span className={`active-dot ${s.is_active ? 'on' : 'off'}`}></span>{s.is_active ? 'Active' : 'Inactive'}</td>
+                  <td>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleEdit(s)} style={{ marginRight: 6 }}>Edit</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDelete(s.id)}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+              {schedules.length === 0 && <tr><td colSpan="6" style={{ textAlign: 'center', color: '#64748b' }}>No shifts configured</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    function App() {
+      const [data, setData] = useState(null);
+      const [error, setError] = useState(null);
+      const [lastRefresh, setLastRefresh] = useState(null);
+      const [countdown, setCountdown] = useState(30);
+
+      const fetchData = useCallback(async () => {
+        try {
+          const res = await fetch('/api/metrics');
+          const json = await res.json();
+          if (json.error) { setError(json.error); return; }
+          setData(json.data);
+          setError(null);
+          setLastRefresh(new Date());
+          setCountdown(30);
+        } catch (e) { setError(e.message); }
+      }, []);
+
+      useEffect(() => { fetchData(); const iv = setInterval(fetchData, 30000); return () => clearInterval(iv); }, [fetchData]);
+      useEffect(() => { const iv = setInterval(() => setCountdown(c => Math.max(c - 1, 0)), 1000); return () => clearInterval(iv); }, []);
+
+      if (error) return <div className="container"><div className="error-box">Error: {error}</div></div>;
+      if (!data) return <div className="loading">Loading metrics...</div>;
+
+      const allAlerts = data.flatMap(row => buildAlerts(row));
+      const worstAlerts = allAlerts.reduce((acc, a) => {
+        const existing = acc.find(x => x.metric === a.metric);
+        const rank = { bad: 2, warn: 1, good: 0 };
+        if (!existing || rank[a.level] > rank[existing.level]) {
+          return [...acc.filter(x => x.metric !== a.metric), a];
+        }
+        return acc;
+      }, []);
+
+      return (
+        <div>
+          <AlertBar alerts={worstAlerts} />
+          <div className="container">
+            <div className="header">
+              <h1>Gripper Maintenance Monitor</h1>
+              <div className="live-badge">
+                <div className="live-dot"></div>
+                LIVE {lastRefresh && `\u00b7 ${lastRefresh.toLocaleTimeString()}`} \u00b7 next in {countdown}s
+              </div>
+            </div>
+
+            {data.map((row, idx) => {
+              const oee = row.oee_pct || 0;
+              const avail = parseFloat(row.availability_pct) || 0;
+              const perf = parseFloat(row.performance_pct) || 0;
+              const quality = parseFloat(row.quality_pct) || 0;
+              const defRate = row.total_cycles > 0 ? (row.defective_cycles / row.total_cycles) * 100 : 0;
+              const alerts = buildAlerts(row);
+
+              return (
+                <div key={idx}>
+                  <div className="arm-label">Arm Serial: <span>{row.arm_serial}</span></div>
+                  <div className="gauges">
+                    <div className="gauge-card">
+                      <div className="gauge-label">OEE</div>
+                      <GaugeRing value={oee} color={getColor(oee, 'oee')} />
+                      <div className="gauge-value" style={{ color: getColor(oee, 'oee') }}>{oee.toFixed(1)}%</div>
+                      <div className="gauge-sub">Target: &ge;{THRESHOLDS.oee.warn}%</div>
+                    </div>
+                    <div className="gauge-card">
+                      <div className="gauge-label">Availability</div>
+                      <GaugeRing value={avail} color={getColor(avail, 'availability')} />
+                      <div className="gauge-value" style={{ color: getColor(avail, 'availability') }}>{avail.toFixed(1)}%</div>
+                      <div className="gauge-sub">Target: &ge;{THRESHOLDS.availability.warn}%</div>
+                    </div>
+                    <div className="gauge-card">
+                      <div className="gauge-label">Performance</div>
+                      <GaugeRing value={perf} color={getColor(perf, 'oee')} />
+                      <div className="gauge-value" style={{ color: getColor(perf, 'oee') }}>{perf.toFixed(1)}%</div>
+                    </div>
+                    <div className="gauge-card">
+                      <div className="gauge-label">Quality</div>
+                      <GaugeRing value={quality} color={getColor(quality, 'quality')} />
+                      <div className="gauge-value" style={{ color: getColor(quality, 'quality') }}>{quality.toFixed(1)}%</div>
+                      <div className="gauge-sub">Target: &ge;{THRESHOLDS.quality.warn}%</div>
+                    </div>
+                  </div>
+
+                  <div className="alerts-section">
+                    <h2>Maintenance Alerts</h2>
+                    {alerts.map((a, i) => (
+                      <div key={i} className={`alert-item ${a.level === 'bad' ? 'red' : a.level === 'warn' ? 'yellow' : 'green'}`}>
+                        <span className="a-icon">{a.level === 'bad' ? '\ud83d\udea8' : a.level === 'warn' ? '\u26a0\ufe0f' : '\u2705'}</span>
+                        <span className="a-text">{a.text}</span>
+                        <span className="a-val">{a.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+
+            <SchedulePanel />
+
+            <div className="table-section">
+              <h2>Cycle Metrics Detail</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Arm Serial</th><th>Total Cycles</th><th>Good</th><th>Defective</th>
+                    <th>Run Time (s)</th><th>Observed (s)</th><th>Avg Cycle (s)</th><th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.map((row, i) => {
+                    const oee = row.oee_pct || 0;
+                    const lvl = getLevel(oee, 'oee');
+                    return (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 700 }}>{row.arm_serial}</td>
+                        <td>{row.total_cycles}</td>
+                        <td>{row.good_cycles}</td>
+                        <td>{row.defective_cycles}</td>
+                        <td>{row.run_time_sec}</td>
+                        <td>{row.total_observed_sec}</td>
+                        <td>{(row.avg_cycle_duration_sec || 0).toFixed(2)}</td>
+                        <td><span className={`status-chip ${lvl}`}>{lvl === 'bad' ? 'Maintenance' : lvl === 'warn' ? 'Monitor' : 'Healthy'}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

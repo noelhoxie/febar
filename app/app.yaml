@@ -1,0 +1,8 @@
+command:
+  - python
+  - app.py
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    value: "6780d2ebf14114da"
+  - name: LAKEBASE_INSTANCE_NAME
+    value: "gripper-maintenance"

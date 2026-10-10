@@ -1,0 +1,577 @@
+{
+  "datasets": [
+    {
+      "name": "gold_gripper_metrics",
+      "displayName": "Gold Gripper Operational Metrics",
+      "config": {
+        "source": "robot_demo_catalog.robot_demo.gold_gripper_operational_metrics",
+        "measures": [
+          {
+            "name": "total_cycles",
+            "expr": "SUM(total_cycles)",
+            "displayName": "Total Cycles"
+          },
+          {
+            "name": "good_cycles",
+            "expr": "SUM(good_cycles)",
+            "displayName": "Good Cycles"
+          },
+          {
+            "name": "defective_cycles",
+            "expr": "SUM(defective_cycles)",
+            "displayName": "Defective Cycles"
+          },
+          {
+            "name": "run_time_sec",
+            "expr": "SUM(run_time_sec)",
+            "displayName": "Run Time (sec)"
+          },
+          {
+            "name": "total_observed_sec",
+            "expr": "SUM(total_observed_sec)",
+            "displayName": "Total Observed (sec)"
+          },
+          {
+            "name": "ideal_cycle_time_sec",
+            "expr": "MIN(ideal_cycle_time_sec)",
+            "displayName": "Ideal Cycle Time (sec)"
+          },
+          {
+            "name": "avg_cycle_duration_sec",
+            "expr": "AVG(avg_cycle_duration_sec)",
+            "displayName": "Avg Cycle Duration (sec)",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "availability_pct",
+            "expr": "AVG(availability_pct)",
+            "displayName": "Availability %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "performance_pct",
+            "expr": "AVG(performance_pct)",
+            "displayName": "Performance %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "quality_pct",
+            "expr": "AVG(quality_pct)",
+            "displayName": "Quality %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "oee_pct",
+            "expr": "AVG(oee_pct)",
+            "displayName": "OEE %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          }
+        ],
+        "filter": "arm_serial = (SELECT arm_serial FROM robot_demo_catalog.robot_demo.bronze_gripper_all_events GROUP BY arm_serial ORDER BY MAX(event_time) DESC LIMIT 1)",
+        "version": "1.1",
+        "dimensions": [
+          {
+            "name": "arm_serial",
+            "expr": "arm_serial",
+            "displayName": "Arm Serial"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hourly_oee",
+      "displayName": "Hourly OEE Metrics",
+      "config": {
+        "version": "1.1",
+        "source": "WITH latest_arm AS (\n  SELECT arm_serial\n  FROM robot_demo_catalog.robot_demo.bronze_gripper_all_events\n  GROUP BY arm_serial\n  ORDER BY MAX(event_time) DESC\n  LIMIT 1\n), base AS (\n  SELECT\n    e.event_time, e.arm_serial, e.cycling, e.cycle_phase,\n    e.position, e.min_limit, e.max_limit,\n    DATE_TRUNC('HOUR', e.event_time) AS event_hour,\n    UNIX_TIMESTAMP(LEAD(e.event_time) OVER (ORDER BY e.event_time))\n      - UNIX_TIMESTAMP(e.event_time) AS duration_sec,\n    CASE WHEN e.cycle_phase = 'open'\n          AND LAG(e.cycle_phase) OVER (ORDER BY e.event_time) = 'close'\n          AND e.cycling = true THEN 1 ELSE 0 END AS is_cycle_complete\n  FROM robot_demo_catalog.robot_demo.bronze_gripper_all_events e\n  INNER JOIN latest_arm la ON e.arm_serial = la.arm_serial\n), with_cycle_num AS (\n  SELECT b.*,\n    SUM(is_cycle_complete) OVER (ORDER BY event_time) AS cycle_number\n  FROM base b\n), cycle_info AS (\n  SELECT\n    cycle_number,\n    MAX(CASE WHEN is_cycle_complete = 1 THEN event_hour END) AS completion_hour,\n    MAX(CASE WHEN cycling = true AND (max_limit - min_limit) > 0 THEN\n      (position - min_limit) * 100.0 / (max_limit - min_limit)\n    ELSE 0 END) AS max_travel_pct\n  FROM with_cycle_num\n  WHERE cycle_number > 0\n  GROUP BY cycle_number\n), hourly_durations AS (\n  SELECT\n    event_hour, arm_serial,\n    SUM(CASE WHEN duration_sec BETWEEN 0 AND 60 THEN duration_sec ELSE 0 END) AS total_observed_sec,\n    SUM(CASE WHEN cycling = true AND duration_sec BETWEEN 0 AND 60 THEN duration_sec ELSE 0 END) AS run_time_sec,\n    SUM(is_cycle_complete) AS total_cycles\n  FROM with_cycle_num\n  GROUP BY event_hour, arm_serial\n), hourly_quality AS (\n  SELECT\n    completion_hour AS event_hour,\n    SUM(CASE WHEN max_travel_pct >= 45 THEN 1 ELSE 0 END) AS good_cycles\n  FROM cycle_info\n  WHERE completion_hour IS NOT NULL\n  GROUP BY completion_hour\n), ideal AS (\n  SELECT ideal_cycle_time_sec\n  FROM robot_demo_catalog.robot_demo.gold_gripper_operational_metrics g\n  INNER JOIN latest_arm la ON g.arm_serial = la.arm_serial\n) SELECT\n  d.event_hour, d.arm_serial,\n  CAST(d.total_cycles AS INT) AS total_cycles,\n  CAST(COALESCE(q.good_cycles, 0) AS INT) AS good_cycles,\n  CAST(d.total_cycles - COALESCE(q.good_cycles, 0) AS INT) AS defective_cycles,\n  d.run_time_sec, d.total_observed_sec, i.ideal_cycle_time_sec,\n  ROUND(d.run_time_sec * 100.0 / NULLIF(d.total_observed_sec, 0), 2) AS availability_pct,\n  ROUND(i.ideal_cycle_time_sec * d.total_cycles * 100.0 / NULLIF(d.run_time_sec, 0), 2) AS performance_pct,\n  ROUND(COALESCE(q.good_cycles, 0) * 100.0 / NULLIF(d.total_cycles, 0), 2) AS quality_pct,\n  ROUND(\n    (d.run_time_sec / NULLIF(d.total_observed_sec, 0)) *\n    (i.ideal_cycle_time_sec * d.total_cycles / NULLIF(d.run_time_sec, 0)) *\n    (COALESCE(q.good_cycles, 0) * 1.0 / NULLIF(d.total_cycles, 0)) * 100, 2\n  ) AS oee_pct\nFROM hourly_durations d LEFT JOIN hourly_quality q ON d.event_hour = q.event_hour CROSS JOIN ideal i WHERE d.total_cycles > 0\n",
+        "dimensions": [
+          {
+            "name": "event_hour",
+            "expr": "event_hour",
+            "displayName": "Hour",
+            "format": {
+              "type": "date_time",
+              "dateFormat": "locale_short_month",
+              "timeFormat": "locale_hour_minute"
+            }
+          },
+          {
+            "name": "arm_serial",
+            "expr": "arm_serial",
+            "displayName": "Arm Serial"
+          }
+        ],
+        "measures": [
+          {
+            "name": "total_cycles",
+            "expr": "SUM(total_cycles)",
+            "displayName": "Total Cycles"
+          },
+          {
+            "name": "good_cycles",
+            "expr": "SUM(good_cycles)",
+            "displayName": "Good Cycles"
+          },
+          {
+            "name": "defective_cycles",
+            "expr": "SUM(defective_cycles)",
+            "displayName": "Defective Cycles"
+          },
+          {
+            "name": "availability_pct",
+            "expr": "AVG(availability_pct)",
+            "displayName": "Availability %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "performance_pct",
+            "expr": "AVG(performance_pct)",
+            "displayName": "Performance %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "quality_pct",
+            "expr": "AVG(quality_pct)",
+            "displayName": "Quality %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          },
+          {
+            "name": "oee_pct",
+            "expr": "AVG(oee_pct)",
+            "displayName": "OEE %",
+            "format": {
+              "type": "number",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 2.0
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "pages": [
+    {
+      "name": "25fe6979",
+      "displayName": "Page 1",
+      "layout": [
+        {
+          "widget": {
+            "name": "cycle_duration_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_gripper_metrics",
+                  "fields": [
+                    {
+                      "name": "arm_serial",
+                      "expression": "`arm_serial`"
+                    },
+                    {
+                      "name": "measure(good_cycles)",
+                      "expression": "MEASURE(`good_cycles`)"
+                    },
+                    {
+                      "name": "measure(defective_cycles)",
+                      "expression": "MEASURE(`defective_cycles`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Cycle Quality by Arm"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "arm_serial",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fields": [
+                    {
+                      "fieldName": "measure(good_cycles)",
+                      "displayName": "Good Cycles"
+                    },
+                    {
+                      "fieldName": "measure(defective_cycles)",
+                      "displayName": "Defective Cycles"
+                    }
+                  ],
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 4,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "total_cycles_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_gripper_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(oee_pct)",
+                      "expression": "MEASURE(`oee_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Average OEE"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(oee_pct)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "cycles_per_hour_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "hourly_oee",
+                  "fields": [
+                    {
+                      "name": "event_hour",
+                      "expression": "`event_hour`"
+                    },
+                    {
+                      "name": "measure(availability_pct)",
+                      "expression": "MEASURE(`availability_pct`)"
+                    },
+                    {
+                      "name": "measure(performance_pct)",
+                      "expression": "MEASURE(`performance_pct`)"
+                    },
+                    {
+                      "name": "measure(quality_pct)",
+                      "expression": "MEASURE(`quality_pct`)"
+                    },
+                    {
+                      "name": "measure(oee_pct)",
+                      "expression": "MEASURE(`oee_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "OEE Breakdown by Hour"
+              },
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "event_hour",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fields": [
+                    {
+                      "fieldName": "measure(availability_pct)",
+                      "displayName": "Availability %"
+                    },
+                    {
+                      "fieldName": "measure(performance_pct)",
+                      "displayName": "Performance %"
+                    },
+                    {
+                      "fieldName": "measure(quality_pct)",
+                      "displayName": "Quality %"
+                    },
+                    {
+                      "fieldName": "measure(oee_pct)",
+                      "displayName": "OEE %"
+                    }
+                  ],
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 4,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "metrics_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_gripper_metrics",
+                  "fields": [
+                    {
+                      "name": "arm_serial",
+                      "expression": "`arm_serial`"
+                    },
+                    {
+                      "name": "measure(total_cycles)",
+                      "expression": "MEASURE(`total_cycles`)"
+                    },
+                    {
+                      "name": "measure(good_cycles)",
+                      "expression": "MEASURE(`good_cycles`)"
+                    },
+                    {
+                      "name": "measure(defective_cycles)",
+                      "expression": "MEASURE(`defective_cycles`)"
+                    },
+                    {
+                      "name": "measure(availability_pct)",
+                      "expression": "MEASURE(`availability_pct`)"
+                    },
+                    {
+                      "name": "measure(performance_pct)",
+                      "expression": "MEASURE(`performance_pct`)"
+                    },
+                    {
+                      "name": "measure(quality_pct)",
+                      "expression": "MEASURE(`quality_pct`)"
+                    },
+                    {
+                      "name": "measure(oee_pct)",
+                      "expression": "MEASURE(`oee_pct`)"
+                    },
+                    {
+                      "name": "measure(run_time_sec)",
+                      "expression": "MEASURE(`run_time_sec`)"
+                    },
+                    {
+                      "name": "measure(total_observed_sec)",
+                      "expression": "MEASURE(`total_observed_sec`)"
+                    },
+                    {
+                      "name": "measure(ideal_cycle_time_sec)",
+                      "expression": "MEASURE(`ideal_cycle_time_sec`)"
+                    },
+                    {
+                      "name": "measure(avg_cycle_duration_sec)",
+                      "expression": "MEASURE(`avg_cycle_duration_sec`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "OEE Metrics Detail"
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "arm_serial"
+                  },
+                  {
+                    "fieldName": "measure(total_cycles)"
+                  },
+                  {
+                    "fieldName": "measure(good_cycles)"
+                  },
+                  {
+                    "fieldName": "measure(defective_cycles)"
+                  },
+                  {
+                    "fieldName": "measure(availability_pct)"
+                  },
+                  {
+                    "fieldName": "measure(performance_pct)"
+                  },
+                  {
+                    "fieldName": "measure(quality_pct)"
+                  },
+                  {
+                    "fieldName": "measure(oee_pct)"
+                  },
+                  {
+                    "fieldName": "measure(run_time_sec)"
+                  },
+                  {
+                    "fieldName": "measure(total_observed_sec)"
+                  },
+                  {
+                    "fieldName": "measure(ideal_cycle_time_sec)"
+                  },
+                  {
+                    "fieldName": "measure(avg_cycle_duration_sec)"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "oee_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gold_gripper_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(oee_pct)",
+                      "expression": "MEASURE(`oee_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Avg OEE %"
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(oee_pct)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}

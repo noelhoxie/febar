@@ -1,0 +1,1 @@
+-- Deprecated: cycling events are now parsed directly in silver_cycle_metrics

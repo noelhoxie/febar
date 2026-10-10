@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gripper Maintenance Monitor</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --db-red: #FF3621;
+      --db-red-dark: #E02E1B;
+      --db-red-light: #FFF1F0;
+      --g50: #F9FAFB; --g100: #F3F4F6; --g200: #E5E7EB; --g300: #D1D5DB;
+      --g400: #9CA3AF; --g500: #6B7280; --g600: #4B5563; --g700: #374151;
+      --g800: #1F2937; --g900: #111827;
+    }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: var(--g50); color: var(--g900); min-height: 100vh; }
+
+    .top-bar { background: #fff; border-bottom: 1px solid var(--g200); padding: 8px 32px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 50; }
+    .top-bar-left { display: flex; align-items: center; gap: 12px; }
+    .top-bar h1 { font-size: 15px; font-weight: 700; color: var(--g900); }
+    .live-ind { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--g500); font-weight: 500; }
+    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #16a34a; animation: blink 1.5s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .status-bar { padding: 6px 32px; display: flex; align-items: center; gap: 20px; border-bottom: 1px solid var(--g200); background: #fff; }
+    .status-phase { display: flex; align-items: center; gap: 10px; }
+    .phase-label { font-size: 11px; font-weight: 600; color: var(--g500); text-transform: uppercase; letter-spacing: .5px; }
+    .phase-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: 800; letter-spacing: .5px; }
+    .phase-badge.pickup { background: #EFF6FF; color: #1E40AF; border: 1.5px solid #93C5FD; }
+    .phase-badge.rotate { background: #FFF7ED; color: #C2410C; border: 1.5px solid #FDBA74; }
+    .phase-badge.dropoff { background: #F0FDF4; color: #166534; border: 1.5px solid #86EFAC; }
+    .phase-badge.unknown { background: var(--g100); color: var(--g500); border: 1.5px solid var(--g300); }
+    .phase-dot { width: 7px; height: 7px; border-radius: 50%; animation: blink 1.2s infinite; }
+    .phase-badge.pickup .phase-dot { background: #3B82F6; }
+    .phase-badge.rotate .phase-dot { background: #EA580C; }
+    .phase-badge.dropoff .phase-dot { background: #16A34A; }
+    .phase-badge.unknown .phase-dot { background: var(--g400); }
+    .status-detail { font-size: 12px; color: var(--g400); }
+    .status-detail strong { color: var(--g600); font-weight: 600; }
+    .phase-steps { display: flex; align-items: center; gap: 0; margin-left: auto; }
+    .phase-step { padding: 3px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; border: 1.5px solid var(--g200); color: var(--g400); background: #fff; }
+    .phase-step:first-child { border-radius: 8px 0 0 8px; }
+    .phase-step:last-child { border-radius: 0 8px 8px 0; }
+    .phase-step:not(:first-child) { border-left: none; }
+    .phase-step.active.pickup { background: #EFF6FF; color: #1E40AF; border-color: #93C5FD; }
+    .phase-step.active.rotate { background: #FFF7ED; color: #C2410C; border-color: #FDBA74; }
+    .phase-step.active.dropoff { background: #F0FDF4; color: #166534; border-color: #86EFAC; }
+
+    .alert-banner { padding: 10px 32px; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 10px; }
+    .alert-banner.ok { background: #F0FDF4; color: #166534; border-bottom: 1px solid #BBF7D0; }
+    .alert-banner.warn { background: #FFFBEB; color: #92400E; border-bottom: 1px solid #FDE68A; }
+    .alert-banner.critical { background: var(--db-red-light); color: var(--db-red); border-bottom: 1px solid #FECACA; }
+
+    .health-banner { padding: 8px 32px; background: #fff; border-bottom: 1px solid var(--g200); }
+    .health-inner { max-width: 1320px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
+    .health-score-ring { width: 48px; height: 48px; flex-shrink: 0; }
+    .health-info { flex: 1; }
+    .health-title { font-size: 10px; font-weight: 600; color: var(--g500); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 1px; }
+    .health-row { display: flex; align-items: baseline; gap: 10px; }
+    .health-num { font-size: 22px; font-weight: 800; line-height: 1; }
+    .health-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; letter-spacing: .3px; }
+    .health-badge.healthy { background: #F0FDF4; color: #166534; border: 1px solid #86EFAC; }
+    .health-badge.degraded { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+    .health-badge.critical { background: var(--db-red-light); color: var(--db-red); border: 1px solid #FECACA; }
+    .health-sub { font-size: 10px; color: var(--g400); margin-top: 1px; }
+    .health-breakdown { display: flex; gap: 16px; margin-left: auto; }
+    .health-stat { text-align: center; }
+    .health-stat-val { font-size: 14px; font-weight: 800; }
+    .health-stat-lbl { font-size: 9px; color: var(--g400); text-transform: uppercase; letter-spacing: .3px; }
+
+    .event-stream-body { max-height: 420px; overflow-y: auto; }
+    .ev-row { padding: 8px 18px; border-bottom: 1px solid var(--g100); display: flex; align-items: center; gap: 10px; font-size: 12px; transition: background .15s; }
+    .ev-row:hover { background: var(--g50); }
+    .ev-row:last-child { border-bottom: none; }
+    .ev-time { font-size: 10px; color: var(--g400); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; width: 62px; flex-shrink: 0; }
+    .ev-details { flex: 1; min-width: 0; }
+    .ev-phase { font-size: 11px; font-weight: 600; color: var(--g800); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ev-meta { font-size: 10px; color: var(--g400); }
+    .ev-vals { display: flex; gap: 6px; flex-shrink: 0; }
+    .ev-val { font-size: 10px; font-weight: 700; color: var(--g600); font-variant-numeric: tabular-nums; background: var(--g100); padding: 1px 6px; border-radius: 4px; }
+    .ev-cycling { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+    .ev-cycling.on { background: #16A34A; }
+    .ev-cycling.off { background: var(--g300); }
+
+    .container { max-width: 1320px; margin: 0 auto; padding: 24px 32px; }
+
+
+    .gauges { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 24px; }
+    .g-card { background: #fff; border-radius: 12px; padding: 20px; text-align: center; border: 1px solid var(--g200); transition: all .2s; overflow: hidden; }
+    
+
+
+
+    .g-label { font-size: 11px; color: var(--g500); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; font-weight: 600; }
+    .g-svg { width: 120px; height: 120px; margin: 0 auto 8px; }
+    .g-val { font-size: 28px; font-weight: 800; }
+    .g-sub { font-size: 11px; color: var(--g400); margin-top: 2px; }
+
+    .sec-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; color: var(--g800); }
+    .alerts-grid { display: grid; gap: 8px; margin-bottom: 24px; }
+    .a-row { background: #fff; border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; border: 1px solid var(--g200); }
+    .a-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .a-dot.red { background: var(--db-red); } .a-dot.yellow { background: #F59E0B; } .a-dot.green { background: #16A34A; }
+    .a-txt { font-size: 13px; font-weight: 500; color: var(--g700); flex: 1; }
+    .a-val { font-size: 13px; font-weight: 700; color: var(--g500); }
+
+    .dtable { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid var(--g200); }
+    .dtable th { background: var(--g50); padding: 10px 16px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--g500); font-weight: 600; border-bottom: 1px solid var(--g200); }
+    .dtable td { padding: 10px 16px; font-size: 13px; border-bottom: 1px solid var(--g100); color: var(--g700); }
+    .dtable tr:last-child td { border-bottom: none; }
+    .dtable tr:hover td { background: var(--g50); }
+
+    .chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+    .chip.good { background: #F0FDF4; color: #166534; } .chip.warn { background: #FFFBEB; color: #92400E; } .chip.bad { background: var(--db-red-light); color: var(--db-red); }
+    .chip-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .chip.good .chip-dot { background: #16A34A; } .chip.warn .chip-dot { background: #F59E0B; } .chip.bad .chip-dot { background: var(--db-red); }
+
+    .sh-hdr { display: flex; justify-content: space-between; align-items: center; margin: 28px 0 12px; }
+    .badge-pg { font-size: 10px; background: var(--g100); color: var(--g500); padding: 2px 8px; border-radius: 10px; font-weight: 600; margin-left: 8px; }
+    .btn { padding: 7px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-red { background: var(--db-red); color: #fff; } .btn-red:hover { background: var(--db-red-dark); }
+    .btn-out { background: #fff; color: var(--g700); border: 1px solid var(--g300); } .btn-out:hover { background: var(--g50); }
+    .btn-gh { background: transparent; color: var(--g500); padding: 4px 8px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; } .btn-gh:hover { color: var(--db-red); }
+    .btn-del { background: transparent; color: var(--g400); padding: 4px 8px; font-size: 12px; border: none; cursor: pointer; font-weight: 600; } .btn-del:hover { color: var(--db-red); }
+
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.18); z-index: 100; opacity: 0; pointer-events: none; transition: opacity .25s; }
+    .overlay.open { opacity: 1; pointer-events: auto; }
+    .panel { position: fixed; top: 0; right: 0; bottom: 0; width: 420px; background: #fff; z-index: 101; transform: translateX(100%); transition: transform .3s ease; box-shadow: -4px 0 24px rgba(0,0,0,.08); display: flex; flex-direction: column; }
+    .panel.open { transform: translateX(0); }
+    .p-hdr { padding: 20px 24px; border-bottom: 1px solid var(--g200); display: flex; justify-content: space-between; align-items: center; }
+    .p-hdr h3 { font-size: 16px; font-weight: 700; }
+    .p-close { background: none; border: none; cursor: pointer; color: var(--g400); font-size: 20px; padding: 4px; line-height: 1; } .p-close:hover { color: var(--g700); }
+    .p-body { padding: 24px; flex: 1; overflow-y: auto; }
+    .fld { margin-bottom: 16px; }
+    .fld label { display: block; font-size: 12px; font-weight: 600; color: var(--g600); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .3px; }
+    .fld input, .fld select { width: 100%; background: #fff; border: 1px solid var(--g300); border-radius: 6px; padding: 9px 12px; color: var(--g900); font-size: 14px; outline: none; font-family: inherit; }
+    .fld input:focus, .fld select:focus { border-color: var(--db-red); box-shadow: 0 0 0 3px rgba(255,54,33,.1); }
+    .fld-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .p-foot { padding: 16px 24px; border-top: 1px solid var(--g200); display: flex; gap: 8px; justify-content: flex-end; }
+
+    .act-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; }
+    .act-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+    .act-dot.on { background: #16A34A; } .act-dot.off { background: var(--g300); }
+
+    .loading { display: flex; justify-content: center; align-items: center; min-height: 60vh; font-size: 15px; color: var(--g400); }
+    .err-box { background: var(--db-red-light); border: 1px solid #FECACA; border-radius: 8px; padding: 14px 16px; color: var(--db-red); font-size: 13px; margin: 16px 0; font-weight: 500; }
+
+    .main-grid { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
+    .main-col { min-width: 0; }
+    .side-col { min-width: 0; }
+    .side-card { background: #fff; border-radius: 12px; border: 1px solid var(--g200); overflow: hidden; position: sticky; top: 72px; }
+    .side-card-hdr { padding: 16px 18px 12px; border-bottom: 1px solid var(--g100); }
+    .side-card-hdr h3 { font-size: 14px; font-weight: 700; color: var(--g800); margin-bottom: 2px; }
+    .side-card-hdr p { font-size: 11px; color: var(--g400); }
+    .defect-row { padding: 12px 18px; border-bottom: 1px solid var(--g100); display: flex; align-items: center; gap: 12px; }
+    .defect-row:last-child { border-bottom: none; }
+    .defect-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+    .defect-info { flex: 1; min-width: 0; }
+    .defect-name { font-size: 13px; font-weight: 600; color: var(--g800); text-transform: capitalize; }
+    .defect-meta { font-size: 11px; color: var(--g400); margin-top: 1px; }
+    .defect-count { text-align: right; }
+    .defect-num { font-size: 18px; font-weight: 800; color: var(--db-red); }
+    .defect-pct { font-size: 11px; color: var(--g400); }
+    .defect-bar-bg { height: 4px; background: var(--g100); border-radius: 2px; margin-top: 6px; }
+    .defect-bar-fill { height: 4px; border-radius: 2px; background: var(--db-red); transition: width .4s ease; }
+    .chart-card { background: #fff; border-radius: 12px; padding: 20px 24px; border: 1px solid var(--g200); margin-bottom: 24px; }
+    .chart-card h3 { font-size: 14px; font-weight: 700; color: var(--g800); margin-bottom: 4px; }
+    .chart-meta { font-size: 11px; color: var(--g400); margin-bottom: 14px; display: flex; gap: 16px; align-items: center; }
+    .chart-canvas { width: 100%; height: 260px; }
+    .chart-controls { display: flex; gap: 6px; }
+    .chip-btn { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; border: 1px solid var(--g200); background: #fff; color: var(--g500); cursor: pointer; transition: all .15s; }
+    .chip-btn.active { background: var(--db-red-light); color: var(--db-red); border-color: var(--db-red); }
+    .chip-btn:hover { border-color: var(--db-red); }
+
+    @media (max-width:1100px) { .main-grid { grid-template-columns: 1fr; } .side-col { order: -1; } .side-card { position: static; } }
+    @media (max-width:900px) { .gauges { grid-template-columns: repeat(2,1fr); } .panel { width: 100%; } }
+    @media (max-width:500px) { .gauges { grid-template-columns: 1fr; } .container { padding: 16px; } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    // Auto-reload if page is outdated
+    window._PAGE_V = 2;
+    (function checkVersion() {
+      fetch('/api/metrics').then(r => r.json()).then(j => {
+        if (j._v && j._v > (window._PAGE_V || 0)) location.reload(true);
+      }).catch(() => {});
+    })();
+  </script>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    function RobotStatusBar() {
+      const [status, setStatus] = useState(null);
+      const fetchStatus = useCallback(async () => {
+        try {
+          const res = await fetch('/api/robot_status');
+          const json = await res.json();
+          if (!json.error) setStatus(json);
+        } catch (e) { console.error(e); }
+      }, []);
+      useEffect(() => { fetchStatus(); const iv = setInterval(fetchStatus, 3000); return () => clearInterval(iv); }, [fetchStatus]);
+      if (!status) return null;
+      const p = status.phase || 'UNKNOWN';
+      const cls = p === 'PICK UP' ? 'pickup' : p === 'ROTATE' ? 'rotate' : p === 'DROP OFF' ? 'dropoff' : 'unknown';
+      return (
+        <div className="status-bar">
+          <div className="status-phase">
+            <span className="phase-label">Robot Status</span>
+            <span className={`phase-badge ${cls}`}><span className="phase-dot"></span>{p}</span>
+          </div>
+          <div className="phase-steps">
+            <div className={`phase-step ${p==='PICK UP'?'active pickup':''}`}>Pick Up</div>
+            <div className={`phase-step ${p==='ROTATE'?'active rotate':''}`}>Rotate</div>
+            <div className={`phase-step ${p==='DROP OFF'?'active dropoff':''}`}>Drop Off</div>
+          </div>
+        </div>
+      );
+    }
+    const CAT_LABEL = {'normal_operation':'Normal','mechanical_drift':'Mech. Drift','calibration_error':'Cal. Error','incomplete_cycle':'Incomplete'};
+    const CAT_CLR = {'normal_operation':'#16A34A','mechanical_drift':'#FF3621','calibration_error':'#EA580C','incomplete_cycle':'#F59E0B'};
+
+    function RecentCycles() {
+      const [cycles, setCycles] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const fetchCycles = useCallback(async () => {
+        try {
+          const res = await fetch('/api/recent_cycles?limit=12');
+          const json = await res.json();
+          if (!json.error) setCycles(json.data);
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
+      }, []);
+      useEffect(() => { fetchCycles(); const iv = setInterval(fetchCycles, 5000); return () => clearInterval(iv); }, [fetchCycles]);
+
+      const good = cycles.filter(c => c.is_normal).length;
+      const bad = cycles.length - good;
+
+      return (
+        <div className="side-card" style={{marginTop: 16, position: 'static'}}>
+          <div className="side-card-hdr">
+            <h3>Recent Cycles</h3>
+            <p>Last {cycles.length} completed \u2014 <span style={{color:'#16A34A',fontWeight:600}}>{good} good</span>{bad > 0 && <span style={{color:'#FF3621',fontWeight:600}}>, {bad} defective</span>}</p>
+          </div>
+          <div className="event-stream-body">
+            {loading ? <div style={{padding:18,color:'#9CA3AF',fontSize:13}}>Loading...</div> :
+              cycles.length === 0 ? <div style={{padding:18,color:'#9CA3AF',fontSize:13}}>No cycles found</div> :
+              cycles.map((c, i) => {
+                const ts = c.cycle_start ? new Date(c.cycle_start.replace(' ','T')).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+                const catClr = CAT_CLR[c.category] || '#9CA3AF';
+                const catLbl = CAT_LABEL[c.category] || c.category;
+                const confPct = Math.round(c.confidence * 100);
+                return (
+                  <div key={i} className="ev-row" style={{alignItems:'flex-start',padding:'10px 18px'}}>
+                    <div style={{width:4,height:4,borderRadius:'50%',background:catClr,marginTop:6,flexShrink:0}}></div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:2}}>
+                        <span style={{fontSize:12,fontWeight:700,color:'var(--g800)'}}>#{c.cycle_index}</span>
+                        <span style={{fontSize:10,padding:'1px 7px',borderRadius:10,fontWeight:600,background:c.is_normal?'#F0FDF4':'#FFF1F0',color:c.is_normal?'#166534':'var(--db-red)',border:'1px solid '+(c.is_normal?'#BBF7D0':'#FECACA')}}>{c.quality}</span>
+                        <span style={{fontSize:10,color:catClr,fontWeight:600}}>{catLbl}</span>
+                      </div>
+                      <div style={{display:'flex',gap:10,fontSize:10,color:'var(--g400)'}}>
+                        <span>{ts}</span>
+                        <span>{c.cycle_time}s</span>
+                        <span>{c.phases}/11 phases</span>
+                        <span title="AI confidence" style={{marginLeft:'auto'}}>
+                          <span style={{display:'inline-block',width:30,height:3,background:'var(--g100)',borderRadius:2,verticalAlign:'middle',marginRight:3}}>
+                            <span style={{display:'block',width:confPct+'%',height:3,borderRadius:2,background:catClr}}></span>
+                          </span>
+                          {confPct}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            }
+          </div>
+        </div>
+      );
+    }
+
+    function HealthScoreCard() {
+      const [health, setHealth] = useState(null);
+      const fetchHealth = useCallback(async () => {
+        try {
+          const res = await fetch('/api/health_score');
+          const json = await res.json();
+          if (!json.error && json.data && json.data.length > 0) setHealth(json.data[0]);
+        } catch (e) { console.error(e); }
+      }, []);
+      useEffect(() => { fetchHealth(); const iv = setInterval(fetchHealth, 5000); return () => clearInterval(iv); }, [fetchHealth]);
+      if (!health) return null;
+      const s = health.health_score || 0;
+      const clr = s >= 80 ? '#16A34A' : s >= 50 ? '#F59E0B' : '#FF3621';
+      const cls = s >= 80 ? 'healthy' : s >= 50 ? 'degraded' : 'critical';
+      const actual = health.actual_cycles || 0;
+      const expected = health.expected_cycles || 10;
+      const wm = health.window_minutes || 5;
+      const p = Math.min(Math.max(s, 0), 100);
+      const r = 18, c = 2 * Math.PI * r, o = c - (p / 100) * c;
+      return (
+        <div className="health-banner">
+          <div className="health-inner">
+            <svg className="health-score-ring" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r={r} fill="none" stroke="#F3F4F6" strokeWidth="5"/>
+              <circle cx="24" cy="24" r={r} fill="none" stroke={clr} strokeWidth="5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={o} transform="rotate(-90 24 24)" style={{transition:'stroke-dashoffset .8s ease'}}/>
+              <text x="24" y="28" textAnchor="middle" fill={clr} fontSize="13" fontWeight="800">{s.toFixed(0)}</text>
+            </svg>
+            <div className="health-info">
+              <div className="health-title">Robot Health Score</div>
+              <div className="health-row">
+                <div className="health-num" style={{color: clr}}>{s.toFixed(1)}</div>
+                <span className={`health-badge ${cls}`}>{health.health_status}</span>
+              </div>
+              <div className="health-sub">{actual}/{expected} cycles in last {wm} min {actual === 0 && <span style={{color:'var(--db-red)',fontWeight:600}}> — Robot idle</span>}</div>
+            </div>
+            <div className="health-breakdown">
+              <div className="health-stat"><div className="health-stat-val" style={{color:'#16A34A'}}>{health.normal_cycles}</div><div className="health-stat-lbl">Normal</div></div>
+              <div className="health-stat"><div className="health-stat-val" style={{color:'#EA580C'}}>{health.calibration_errors}</div><div className="health-stat-lbl">Calibration</div></div>
+              <div className="health-stat"><div className="health-stat-val" style={{color:'#F59E0B'}}>{health.incomplete_cycles}</div><div className="health-stat-lbl">Incomplete</div></div>
+              <div className="health-stat"><div className="health-stat-val" style={{color:'#FF3621'}}>{health.mechanical_drifts}</div><div className="health-stat-lbl">Drift</div></div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ShiftContextBar() {
+      const [ctx, setCtx] = useState(null);
+      const fetchCtx = useCallback(async () => {
+        try {
+          const res = await fetch('/api/current_context');
+          const json = await res.json();
+          if (!json.error) setCtx(json);
+        } catch (e) { console.error(e); }
+      }, []);
+      useEffect(() => { fetchCtx(); const iv = setInterval(fetchCtx, 10000); return () => clearInterval(iv); }, [fetchCtx]);
+      if (!ctx) return null;
+      const fmtTime = (t) => t ? new Date(t+'Z').toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '--';
+      return (
+        <div style={{padding:'10px 32px',background:'#fff',borderBottom:'1px solid var(--g200)',display:'flex',alignItems:'center',gap:20}}>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <span style={{fontSize:11,fontWeight:600,color:'var(--g500)',textTransform:'uppercase',letterSpacing:'.5px'}}>Current Shift</span>
+            <span style={{background:'var(--db-red-light)',color:'var(--db-red)',padding:'3px 12px',borderRadius:12,fontSize:12,fontWeight:700}}>{ctx.shift_name}</span>
+          </div>
+          <div style={{fontSize:12,color:'var(--g500)'}}>
+            <strong style={{color:'var(--g700)'}}>{fmtTime(ctx.start_time)}</strong> \u2192 <strong style={{color:'var(--g700)'}}>{fmtTime(ctx.end_time)}</strong>
+          </div>
+          <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6}}>
+            <span style={{fontSize:24,fontWeight:800,color:'var(--g900)'}}>{ctx.cycle_count}</span>
+            <span style={{fontSize:11,color:'var(--g400)',fontWeight:600,textTransform:'uppercase',lineHeight:1.2}}>Cycles<br/>This Shift</span>
+          </div>
+        </div>
+      );
+    }
+
+    const T = { oee:{warn:65,critical:50}, availability:{warn:75,critical:60}, performance:{warn:85,critical:70}, quality:{warn:95,critical:90}, defectRate:{warn:5,critical:10} };
+
+    // Global hourly data store
+    let _hourlyData = null;
+    async function loadHourlyData() {
+      if (_hourlyData) return _hourlyData;
+      try {
+        const res = await fetch('/api/hourly_metrics');
+        const json = await res.json();
+        if (!json.error) _hourlyData = json.data;
+      } catch (e) { console.error(e); }
+      return _hourlyData || [];
+    }
+
+    const color = (v,m) => { const t=T[m]; if(!t) return '#16A34A'; if(m==='defectRate') return v>=t.critical?'#FF3621':v>=t.warn?'#F59E0B':'#16A34A'; return v<=t.critical?'#FF3621':v<=t.warn?'#F59E0B':'#16A34A'; };
+    const level = (v,m) => { const t=T[m]; if(!t) return 'good'; if(m==='defectRate') return v>=t.critical?'bad':v>=t.warn?'warn':'good'; return v<=t.critical?'bad':v<=t.warn?'warn':'good'; };
+
+    function MiniChart({ value, label, clr }) {
+      const testHours = ['13:00','14:00','15:00','16:00'];
+      const testVals = [value * 0.7, value * 0.85, value, value * 0.95];
+      return (
+        <div className="mini-chart">
+          <div className="mini-chart-title">Hourly {label}</div>
+          <div style={{display:'flex',alignItems:'flex-end',gap:6,height:50,justifyContent:'center'}}>
+            {testVals.map((v, i) => {
+              const pct = Math.max((v / 100) * 100, 5);
+              return (
+                <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',flex:1}}>
+                  <div style={{fontSize:9,fontWeight:700,color:clr,marginBottom:2}}>{v.toFixed(0)}%</div>
+                  <div style={{width:'100%',height:40,display:'flex',alignItems:'flex-end'}}>
+                    <div style={{width:'100%',height:pct+'%',borderRadius:3,minHeight:3,background:clr,opacity:0.25,border:'1.5px solid '+clr}}></div>
+                  </div>
+                  <div style={{fontSize:8,color:'#9CA3AF',marginTop:2}}>{testHours[i]}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    function Gauge({value,clr}) {
+      const p=Math.min(Math.max(value,0),100), r=48, c=2*Math.PI*r, o=c-(p/100)*c;
+      return (<svg className="g-svg" viewBox="0 0 120 120"><circle cx="60" cy="60" r={r} fill="none" stroke="#F3F4F6" strokeWidth="10"/><circle cx="60" cy="60" r={r} fill="none" stroke={clr} strokeWidth="10" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={o} transform="rotate(-90 60 60)" style={{transition:'stroke-dashoffset .8s ease'}}/><text x="60" y="56" textAnchor="middle" fill="#1F2937" fontSize="24" fontWeight="800">{p.toFixed(1)}</text><text x="60" y="74" textAnchor="middle" fill="#9CA3AF" fontSize="11" fontWeight="500">%</text></svg>);
+    }
+
+    function Banner({alerts}) {
+      const bad=alerts.some(a=>a.level==='bad'), wrn=alerts.some(a=>a.level==='warn');
+      const cls=bad?'critical':wrn?'warn':'ok';
+      const msg=bad?'Maintenance Required \u2014 Critical thresholds exceeded':wrn?'Attention \u2014 Performance approaching thresholds':'All Systems Nominal \u2014 No action required';
+      return <div className={`alert-banner ${cls}`}>{msg}</div>;
+    }
+
+    function mkAlerts(row) {
+      const a=[], oee=row.oee_pct||0, av=parseFloat(row.availability_pct)||0, q=parseFloat(row.quality_pct)||0;
+      const dr=row.total_cycles>0?(row.defective_cycles/row.total_cycles)*100:0;
+      a.push({metric:'OEE',value:`${oee.toFixed(1)}%`,level:level(oee,'oee'),text:oee<=T.oee.critical?`OEE critically low at ${oee.toFixed(1)}%`:oee<=T.oee.warn?`OEE below target at ${oee.toFixed(1)}%`:`OEE healthy at ${oee.toFixed(1)}%`});
+      a.push({metric:'Availability',value:`${av.toFixed(1)}%`,level:level(av,'availability'),text:av<=T.availability.critical?'Availability critically low \u2014 check for jams':av<=T.availability.warn?'Availability declining \u2014 schedule inspection':'Availability nominal'});
+      a.push({metric:'Quality',value:`${q.toFixed(1)}%`,level:level(q,'quality'),text:q<=T.quality.critical?'High defect rate \u2014 calibration needed':q<=T.quality.warn?'Quality declining \u2014 monitor travel':'Quality within spec'});
+      a.push({metric:'Defect Rate',value:`${dr.toFixed(1)}%`,level:level(dr,'defectRate'),text:dr>=T.defectRate.critical?'Defect rate critical \u2014 action required':dr>=T.defectRate.warn?'Defect rate elevated \u2014 investigate':'Defect rate acceptable'});
+      return a;
+    }
+
+    const JOINT_COLORS = {
+      'Shoulder pan': '#FF3621',
+      'Shoulder lift': '#1E40AF',
+      'Elbow flex': '#16A34A',
+      'Wrist flex': '#9333EA',
+      'Wrist roll': '#EA580C',
+      'Gripper': '#0891B2'
+    };
+
+    function TelemetryChart() {
+      const canvasRef = React.useRef(null);
+      const chartRef = React.useRef(null);
+      const [minutes, setMinutes] = useState(5);
+      const [loading, setLoading] = useState(true);
+      const [visibleJoints, setVisibleJoints] = useState(new Set(['Shoulder pan', 'Elbow flex', 'Gripper']));
+      const allJoints = ['Shoulder pan', 'Elbow flex', 'Gripper'];
+
+      const toggleJoint = (name) => {
+        setVisibleJoints(prev => {
+          const next = new Set(prev);
+          if (next.has(name)) { if (next.size > 1) next.delete(name); }
+          else next.add(name);
+          return next;
+        });
+      };
+
+      const fetchAndRender = useCallback(async () => {
+        try {
+          const res = await fetch(`/api/telemetry?minutes=${minutes}`);
+          const json = await res.json();
+          if (json.error) { console.error(json.error); return; }
+          const { timestamps, series } = json;
+          const labels = timestamps.map(t => new Date(t.replace(' ', 'T')));
+
+          const datasets = allJoints.map(name => ({
+            label: name,
+            data: series[name].map((v, i) => ({ x: labels[i], y: v })),
+            borderColor: JOINT_COLORS[name],
+            backgroundColor: JOINT_COLORS[name] + '18',
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0.3,
+            hidden: !visibleJoints.has(name)
+          }));
+
+          if (chartRef.current) {
+            chartRef.current.data.datasets = datasets;
+            chartRef.current.update('none');
+          } else if (canvasRef.current) {
+            chartRef.current = new Chart(canvasRef.current, {
+              type: 'line',
+              data: { datasets },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                  legend: { display: false },
+                  tooltip: { backgroundColor: '#1F2937', titleFont: { size: 11 }, bodyFont: { size: 11 }, padding: 8, cornerRadius: 6 }
+                },
+                scales: {
+                  x: { type: 'time', time: { tooltipFormat: 'HH:mm:ss', displayFormats: { second: 'HH:mm:ss', minute: 'HH:mm' } }, grid: { color: '#F3F4F6' }, ticks: { font: { size: 10 }, color: '#9CA3AF', maxTicksLimit: 8 } },
+                  y: { title: { display: true, text: 'Position', font: { size: 11, weight: '600' }, color: '#6B7280' }, grid: { color: '#F3F4F6' }, ticks: { font: { size: 10 }, color: '#9CA3AF' } }
+                }
+              }
+            });
+          }
+          setLoading(false);
+        } catch (e) { console.error(e); }
+      }, [minutes, visibleJoints]);
+
+      useEffect(() => {
+        fetchAndRender();
+        const iv = setInterval(fetchAndRender, 3000);
+        return () => clearInterval(iv);
+      }, [fetchAndRender]);
+
+      useEffect(() => {
+        if (chartRef.current) {
+          chartRef.current.data.datasets.forEach(ds => { ds.hidden = !visibleJoints.has(ds.label); });
+          chartRef.current.update('none');
+        }
+      }, [visibleJoints]);
+
+      return (
+        <div className="chart-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              <h3>Joint Position Timeline {loading && <span style={{ fontWeight: 400, color: '#9CA3AF', fontSize: 12 }}> Loading...</span>}</h3>
+              <div className="chart-meta">
+                <span>Live telemetry from robot arm joints</span>
+                <span>Updates every 3s</span>
+              </div>
+            </div>
+            <div className="chart-controls">
+              {[2, 5, 15].map(m => (
+                <button key={m} className={`chip-btn ${minutes === m ? 'active' : ''}`} onClick={() => setMinutes(m)}>{m}m</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+            {allJoints.map(name => (
+              <button key={name} className="chip-btn" onClick={() => toggleJoint(name)}
+                style={visibleJoints.has(name) ? { background: JOINT_COLORS[name] + '15', color: JOINT_COLORS[name], borderColor: JOINT_COLORS[name] } : {}}>
+                <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: visibleJoints.has(name) ? JOINT_COLORS[name] : '#D1D5DB', marginRight: 4 }}></span>
+                {name}
+              </button>
+            ))}
+          </div>
+          <div className="chart-canvas"><canvas ref={canvasRef}></canvas></div>
+        </div>
+      );
+    }
+
+    function CycleOverlay() {
+      const ovCanvasRef = useRef(null);
+      const ovChartRef = useRef(null);
+      const [joint, setJoint] = useState('shoulder_pan');
+      const [loading, setLoading] = useState(true);
+      const [cycles, setCycles] = useState([]);
+
+      const fetchData = useCallback(async () => {
+        try {
+          const res = await fetch('/api/cycle_overlay?cycles=8');
+          const json = await res.json();
+          if (!json.error) setCycles(json.data || []);
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
+      }, []);
+      useEffect(() => { fetchData(); const iv = setInterval(fetchData, 10000); return () => clearInterval(iv); }, [fetchData]);
+
+      useEffect(() => {
+        if (!cycles.length || !ovCanvasRef.current) return;
+        const j = joint;
+        const catClr = {normal_operation:'#16A34A',mechanical_drift:'#FF3621',calibration_error:'#EA580C',incomplete_cycle:'#F59E0B'};
+        const jLabel = {shoulder_pan:'Shoulder Pan',elbow_flex:'Elbow Flex',gripper:'Gripper'};
+        const datasets = cycles.map((c, i) => {
+          const isLatest = i === 0;
+          const clr = catClr[c.category] || '#9CA3AF';
+          return {
+            label: '#' + c.cycle_index + ' (' + c.quality + ')',
+            data: c.points.map(p => ({x: p.t, y: p[j]})).filter(p => p.y != null),
+            borderColor: isLatest ? clr : clr + '50',
+            borderWidth: isLatest ? 2.5 : 1,
+            pointRadius: 0,
+            tension: 0.3,
+            borderDash: c.category === 'normal_operation' ? [] : [4, 2]
+          };
+        });
+        if (ovChartRef.current) {
+          ovChartRef.current.data.datasets = datasets;
+          ovChartRef.current.options.scales.y.title.text = jLabel[j] + ' Position';
+          ovChartRef.current.update('none');
+        } else {
+          ovChartRef.current = new Chart(ovCanvasRef.current, {
+            type: 'line', data: { datasets },
+            options: {
+              responsive: true, maintainAspectRatio: false, animation: false,
+              interaction: { mode: 'nearest', intersect: false },
+              plugins: { legend: { display: false }, tooltip: { backgroundColor:'#1F2937', titleFont:{size:11}, bodyFont:{size:11}, padding:8, cornerRadius:6, callbacks:{ title: items => items[0]?.dataset.label||'' } } },
+              scales: {
+                x: { type:'linear', title:{display:true,text:'Seconds into cycle',font:{size:11,weight:'600'},color:'#6B7280'}, grid:{color:'#F3F4F6'}, ticks:{font:{size:10},color:'#9CA3AF'}, min:0 },
+                y: { title:{display:true,text:jLabel[j]+' Position',font:{size:11,weight:'600'},color:'#6B7280'}, grid:{color:'#F3F4F6'}, ticks:{font:{size:10},color:'#9CA3AF'} }
+              }
+            }
+          });
+        }
+      }, [cycles, joint]);
+
+      const good = cycles.filter(c => c.category === 'normal_operation').length;
+      const bad = cycles.length - good;
+      return (
+        <div className="chart-card">
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:8}}>
+            <div>
+              <h3>Cycle Overlay {loading && <span style={{fontWeight:400,color:'#9CA3AF',fontSize:12}}>Loading...</span>}</h3>
+              <div className="chart-meta">
+                <span>Last {cycles.length} cycles superimposed {good > 0 && <span>\u2014 <strong style={{color:'#16A34A'}}>{good} normal</strong></span>}{bad > 0 && <span>, <strong style={{color:'#FF3621'}}>{bad} defective</strong></span>}</span>
+                <span>Bold = latest, dashed = defect</span>
+              </div>
+            </div>
+            <div className="chart-controls">
+              {[['shoulder_pan','Shoulder'],['elbow_flex','Elbow'],['gripper','Gripper']].map(([k,l]) => (
+                <button key={k} className={`chip-btn ${joint===k?'active':''}`} onClick={() => setJoint(k)}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div className="chart-canvas"><canvas ref={ovCanvasRef}></canvas></div>
+        </div>
+      );
+    }
+
+    function PhaseRing() {
+      const [phase, setPhase] = useState(null);
+      const fetchPhase = useCallback(async () => {
+        try {
+          const res = await fetch('/api/cycle_phase');
+          const json = await res.json();
+          if (!json.error) setPhase(json);
+        } catch (e) { console.error(e); }
+      }, []);
+      useEffect(() => { fetchPhase(); const iv = setInterval(fetchPhase, 1000); return () => clearInterval(iv); }, [fetchPhase]);
+      if (!phase) return null;
+
+      const labels = ['Raise','Open','Rotate\u2192Pick','Reach','Hold','Close','Lift','Rotate\u2192Drop','Extend','Release','Clear'];
+      const colors = ['#3B82F6','#3B82F6','#EA580C','#3B82F6','#3B82F6','#3B82F6','#EA580C','#EA580C','#16A34A','#16A34A','#16A34A'];
+      const n = 11, gapDeg = 3, segDeg = (360 - n * gapDeg) / n;
+      const r = 70, cx = 100, cy = 100, cur = phase.current_index;
+
+      const arcs = Array.from({length: n}, (_, i) => {
+        const sA = (i * (segDeg + gapDeg) - 90) * Math.PI / 180;
+        const eA = (i * (segDeg + gapDeg) - 90 + segDeg) * Math.PI / 180;
+        const done = cur >= 0 && i <= cur;
+        const active = i === cur;
+        return {
+          d: `M ${cx+r*Math.cos(sA)} ${cy+r*Math.sin(sA)} A ${r} ${r} 0 0 1 ${cx+r*Math.cos(eA)} ${cy+r*Math.sin(eA)}`,
+          clr: colors[i], op: done ? (active ? 1 : 0.55) : 0.1, sw: active ? 14 : 10
+        };
+      });
+
+      return (
+        <div className="chart-card" style={{display:'flex',alignItems:'center',gap:24,padding:'16px 24px'}}>
+          <svg viewBox="0 0 200 200" width="160" height="160" style={{flexShrink:0}}>
+            {arcs.map((a, i) => (
+              <path key={i} d={a.d} fill="none" stroke={a.clr} strokeWidth={a.sw} strokeLinecap="round" opacity={a.op} style={{transition:'opacity .3s, stroke-width .3s'}} />
+            ))}
+            <text x={cx} y={cy-6} textAnchor="middle" fontSize="13" fontWeight="800" fill="#1F2937">{cur >= 0 ? labels[cur] : 'IDLE'}</text>
+            <text x={cx} y={cy+12} textAnchor="middle" fontSize="11" fill="#9CA3AF" fontWeight="600">{cur >= 0 ? `${cur+1} / ${n}` : '\u2014'}</text>
+          </svg>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:700,color:'var(--g800)',marginBottom:8}}>Cycle Phase Progress</div>
+            <div style={{fontSize:12,color:'var(--g500)',marginBottom:12}}>Cycle <strong style={{color:'var(--g800)'}}>#{phase.cycle_index || '-'}</strong> {'\u00b7'} {phase.cycling ? <span style={{color:'#16A34A',fontWeight:600}}>Active</span> : <span style={{color:'var(--g400)'}}>Idle</span>}</div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {labels.map((l, i) => (
+                <span key={i} style={{fontSize:9,padding:'2px 6px',borderRadius:6,fontWeight:600,
+                  background: i===cur ? colors[i]+'20' : 'var(--g50)',
+                  color: cur>=0 && i<=cur ? colors[i] : 'var(--g300)',
+                  border: i===cur ? '1px solid '+colors[i] : '1px solid transparent',
+                  transition:'all .3s'
+                }}>{l}</span>
+              ))}
+            </div>
+            <div style={{display:'flex',gap:12,marginTop:10}}>
+              <span style={{fontSize:10,color:'#3B82F6',fontWeight:600}}>{'\u25CF'} Pick</span>
+              <span style={{fontSize:10,color:'#EA580C',fontWeight:600}}>{'\u25CF'} Rotate</span>
+              <span style={{fontSize:10,color:'#16A34A',fontWeight:600}}>{'\u25CF'} Drop</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function JointHeatmap() {
+      const [hd, setHd] = useState(null);
+      const fetchHeat = useCallback(async () => {
+        try {
+          const res = await fetch('/api/joint_heatmap?cycles=10');
+          const json = await res.json();
+          if (!json.error) setHd(json);
+        } catch (e) { console.error(e); }
+      }, []);
+      useEffect(() => { fetchHeat(); const iv = setInterval(fetchHeat, 10000); return () => clearInterval(iv); }, [fetchHeat]);
+      if (!hd || !hd.data.length) return null;
+
+      const catClr = {normal_operation:'#16A34A',mechanical_drift:'#FF3621',calibration_error:'#EA580C',incomplete_cycle:'#F59E0B'};
+      const zBg = z => { const a=Math.min(Math.abs(z),3); return a<0.5?'#dcfce7':a<1?'#bbf7d0':a<1.5?'#fef9c3':a<2?'#fed7aa':'#fecaca'; };
+      const zFg = z => { const a=Math.abs(z); return a<1?'#166534':a<2?'#92400E':'#991B1B'; };
+
+      return (
+        <div className="chart-card">
+          <h3>Joint Deviation Heatmap</h3>
+          <div className="chart-meta"><span>Z-score from median \u2014 green = within spec, red = outlier</span></div>
+          <div style={{overflowX:'auto',marginTop:12}}>
+            <table style={{borderCollapse:'collapse',width:'100%',fontSize:11}}>
+              <thead><tr>
+                <th style={{padding:'6px 10px',textAlign:'left',fontSize:10,color:'var(--g500)',fontWeight:600}}>Cycle</th>
+                {hd.joints.map(j => <th key={j} style={{padding:'6px 6px',textAlign:'center',fontSize:9,color:'var(--g500)',fontWeight:600,whiteSpace:'nowrap'}}>{j}</th>)}
+                <th style={{padding:'6px 10px',textAlign:'center',fontSize:10,color:'var(--g500)',fontWeight:600}}>Result</th>
+              </tr></thead>
+              <tbody>{hd.data.map((row, ri) => (
+                <tr key={ri}>
+                  <td style={{padding:'3px 10px',fontWeight:700,fontSize:12,color:'var(--g800)'}}>#{row.cycle_index}</td>
+                  {row.z.map((z, ci) => (
+                    <td key={ci} style={{padding:'3px 4px',textAlign:'center'}}>
+                      <div style={{background:zBg(z),borderRadius:4,padding:'3px 0',fontWeight:700,fontSize:10,color:zFg(z),minWidth:36}}>
+                        {z>0?'+':''}{z.toFixed(1)}
+                      </div>
+                    </td>
+                  ))}
+                  <td style={{padding:'3px 10px',textAlign:'center'}}>
+                    <span style={{fontSize:9,padding:'2px 7px',borderRadius:10,fontWeight:600,background:row.category==='normal_operation'?'#F0FDF4':'#FFF1F0',color:catClr[row.category]||'#9CA3AF'}}>{row.quality}</span>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    const DEFECT_ICONS = { 'mechanical_drift': '\u2699\uFE0F', 'calibration_error': '\uD83D\uDD27', 'incomplete_cycle': '\u26A0\uFE0F' };
+    const DEFECT_LABELS = { 'mechanical_drift': 'Mechanical Drift', 'calibration_error': 'Calibration Error', 'incomplete_cycle': 'Incomplete Cycle' };
+    const DEFECT_COLORS = { 'mechanical_drift': '#FF3621', 'calibration_error': '#EA580C', 'incomplete_cycle': '#F59E0B' };
+
+    function DefectDetail({ category, onClose }) {
+      const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const confChartRef = useRef(null);
+      const confCanvasRef = useRef(null);
+      const trendChartRef = useRef(null);
+      const trendCanvasRef = useRef(null);
+
+      useEffect(() => {
+        (async () => {
+          try {
+            const res = await fetch(`/api/defect_detail?category=${encodeURIComponent(category)}`);
+            const json = await res.json();
+            if (!json.error) setData(json);
+          } catch (e) { console.error(e); }
+          finally { setLoading(false); }
+        })();
+        return () => { if (confChartRef.current) confChartRef.current.destroy(); if (trendChartRef.current) trendChartRef.current.destroy(); };
+      }, [category]);
+
+      useEffect(() => {
+        if (!data) return;
+        const clr = DEFECT_COLORS[category] || '#FF3621';
+        // Confidence distribution chart
+        if (data.confidence_dist.length && confCanvasRef.current) {
+          if (confChartRef.current) confChartRef.current.destroy();
+          confChartRef.current = new Chart(confCanvasRef.current, {
+            type: 'bar',
+            data: {
+              labels: data.confidence_dist.map(d => d.bucket),
+              datasets: [{ data: data.confidence_dist.map(d => d.count), backgroundColor: clr + '40', borderColor: clr, borderWidth: 1.5, borderRadius: 4 }]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false, animation: false,
+              plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1F2937', titleFont:{size:11}, bodyFont:{size:11}, padding:8, cornerRadius:6 } },
+              scales: { x: { grid:{display:false}, ticks:{font:{size:9},color:'#9CA3AF'} }, y: { beginAtZero:true, grid:{color:'#F3F4F6'}, ticks:{font:{size:9},color:'#9CA3AF',stepSize:1} } }
+            }
+          });
+        }
+        // Trend chart
+        if (data.trend.length && trendCanvasRef.current) {
+          if (trendChartRef.current) trendChartRef.current.destroy();
+          trendChartRef.current = new Chart(trendCanvasRef.current, {
+            type: 'line',
+            data: {
+              labels: data.trend.map(d => d.day),
+              datasets: [{ data: data.trend.map(d => d.count), borderColor: clr, backgroundColor: clr + '18', borderWidth: 2, pointRadius: 3, pointBackgroundColor: clr, tension: 0.3, fill: true }]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false, animation: false,
+              plugins: { legend: { display: false }, tooltip: { backgroundColor:'#1F2937', titleFont:{size:11}, bodyFont:{size:11}, padding:8, cornerRadius:6 } },
+              scales: { x: { grid:{display:false}, ticks:{font:{size:9},color:'#9CA3AF',maxTicksLimit:6} }, y: { beginAtZero:true, grid:{color:'#F3F4F6'}, ticks:{font:{size:9},color:'#9CA3AF',stepSize:1} } }
+            }
+          });
+        }
+      }, [data, category]);
+
+      const clr = DEFECT_COLORS[category] || '#FF3621';
+      const label = DEFECT_LABELS[category] || category.replace(/_/g, ' ');
+      const icon = DEFECT_ICONS[category] || '\u26A0\uFE0F';
+
+      return (
+        <div style={{padding:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'16px 18px',borderBottom:'1px solid var(--g100)'}}>
+            <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',fontSize:16,color:'var(--g400)',padding:'2px 6px',lineHeight:1}}>{'\u2190'}</button>
+            <div style={{width:32,height:32,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',background:clr+'15',fontSize:14}}>{icon}</div>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:'var(--g800)'}}>{label}</div>
+              <div style={{fontSize:10,color:'var(--g400)'}}>AI Classification Detail</div>
+            </div>
+          </div>
+          {loading ? <div style={{padding:18,color:'#9CA3AF',fontSize:13}}>Loading detail...</div> :
+          !data ? <div style={{padding:18,color:'#9CA3AF',fontSize:13}}>No data</div> :
+          <div style={{padding:'12px 18px'}}>
+            <div style={{fontSize:11,fontWeight:700,color:'var(--g800)',marginBottom:6,textTransform:'uppercase',letterSpacing:'.3px'}}>Confidence Distribution</div>
+            <div style={{height:120,marginBottom:16}}><canvas ref={confCanvasRef}></canvas></div>
+
+            <div style={{fontSize:11,fontWeight:700,color:'var(--g800)',marginBottom:6,textTransform:'uppercase',letterSpacing:'.3px'}}>Defects Over Time</div>
+            <div style={{height:100,marginBottom:16}}><canvas ref={trendCanvasRef}></canvas></div>
+
+            <div style={{fontSize:11,fontWeight:700,color:'var(--g800)',marginBottom:8,textTransform:'uppercase',letterSpacing:'.3px'}}>AI Rationale ({data.cycles.length} recent)</div>
+            <div style={{maxHeight:280,overflowY:'auto'}}>
+              {data.cycles.map((c, i) => (
+                <div key={i} style={{padding:'8px 0',borderBottom:'1px solid var(--g100)',fontSize:11}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
+                    <span style={{fontWeight:700,color:'var(--g800)'}}>Cycle #{c.cycle_index}</span>
+                    <span style={{display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{fontSize:10,color:clr,fontWeight:600}}>{(c.confidence*100).toFixed(0)}%</span>
+                      <span style={{fontSize:9,padding:'1px 6px',borderRadius:8,fontWeight:600,background:c.quality==='Good'?'#F0FDF4':'#FFF1F0',color:c.quality==='Good'?'#166534':'var(--db-red)'}}>{c.quality}</span>
+                    </span>
+                  </div>
+                  <div style={{color:'var(--g600)',lineHeight:1.4,fontStyle:'italic'}}>{'\u201C'}{c.rationale}{'\u201D'}</div>
+                  <div style={{display:'flex',gap:10,marginTop:3,color:'var(--g400)',fontSize:10}}>
+                    <span>{c.cycle_time.toFixed(1)}s</span>
+                    <span>{c.phases}/11 phases</span>
+                    {c.rotation_type && <span>{c.rotation_type}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>}
+        </div>
+      );
+    }
+
+    function DefectsPanel() {
+      const [defects, setDefects] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [selected, setSelected] = useState(null);
+      const fetchDefects = useCallback(async () => {
+        try {
+          const res = await fetch('/api/defects');
+          const json = await res.json();
+          if (!json.error) setDefects(json.data);
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
+      }, []);
+      useEffect(() => { fetchDefects(); const iv = setInterval(fetchDefects, 30000); return () => clearInterval(iv); }, [fetchDefects]);
+
+      const total = defects.reduce((s, d) => s + d.total, 0);
+
+      if (selected) {
+        return (
+          <div className="side-card">
+            <DefectDetail category={selected} onClose={() => setSelected(null)} />
+          </div>
+        );
+      }
+
+      return (
+        <div className="side-card">
+          <div className="side-card-hdr">
+            <h3>Top Defects</h3>
+            <p>AI-classified failure categories ({total} total)</p>
+          </div>
+          {loading ? <div style={{ padding: 18, color: '#9CA3AF', fontSize: 13 }}>Loading...</div> :
+            defects.length === 0 ? <div style={{ padding: 18, color: '#9CA3AF', fontSize: 13 }}>No defects found</div> :
+            defects.map((d, i) => (
+              <div key={i} className="defect-row" style={{cursor:'pointer'}} onClick={() => setSelected(d.category)}>
+                <div className="defect-icon" style={{ background: (DEFECT_COLORS[d.category] || '#FF3621') + '12', color: DEFECT_COLORS[d.category] || '#FF3621' }}>
+                  {DEFECT_ICONS[d.category] || '\u26A0\uFE0F'}
+                </div>
+                <div className="defect-info">
+                  <div className="defect-name">{DEFECT_LABELS[d.category] || d.category.replace(/_/g, ' ')}</div>
+                  <div className="defect-meta">Avg confidence: {(d.avg_confidence * 100).toFixed(0)}%</div>
+                  <div className="defect-bar-bg"><div className="defect-bar-fill" style={{ width: `${d.pct}%`, background: DEFECT_COLORS[d.category] || '#FF3621' }}></div></div>
+                </div>
+                <div className="defect-count">
+                  <div className="defect-num" style={{ color: DEFECT_COLORS[d.category] || '#FF3621' }}>{d.total}</div>
+                  <div className="defect-pct">{d.pct.toFixed(1)}%</div>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      );
+    }
+
+    function Schedules() {
+      const [list,setList]=useState([]),[loading,setLoading]=useState(true),[err,setErr]=useState(null);
+      const [open,setOpen]=useState(false),[eid,setEid]=useState(null);
+      const today=new Date().toISOString().slice(0,10);
+      const [f,setF]=useState({shift_name:'',shift_date:today,start_time:'06:00',end_time:'14:00',is_active:true});
+      const load=useCallback(async()=>{try{const r=await fetch('/api/schedules');const j=await r.json();if(j.error){setErr(j.error);return;}setList(j.data);setErr(null);}catch(e){setErr(e.message);}finally{setLoading(false);}},[]);
+      useEffect(()=>{load();},[load]);
+      const reset=()=>{setF({shift_name:'',shift_date:today,start_time:'06:00',end_time:'14:00',is_active:true});setEid(null);};
+      const openAdd=()=>{reset();setOpen(true);};
+      const openEdit=(s)=>{setF({shift_name:s.shift_name,shift_date:s.shift_date||today,start_time:s.start_time.slice(11,16)||s.start_time.slice(0,5),end_time:s.end_time.slice(11,16)||s.end_time.slice(0,5),is_active:s.is_active});setEid(s.id);setOpen(true);};
+      const close=()=>{setOpen(false);setTimeout(reset,300);};
+      const submit=async(e)=>{e.preventDefault();const st=f.shift_date+'T'+f.start_time+':00';const et=f.shift_date+'T'+f.end_time+':00';const p={shift_name:f.shift_name,shift_date:f.shift_date,start_time:st,end_time:et,is_active:f.is_active};const u=eid?`/api/schedules/${eid}`:'/api/schedules';const m=eid?'PUT':'POST';try{const r=await fetch(u,{method:m,headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});const j=await r.json();if(j.error){setErr(j.error);return;}close();load();}catch(e){setErr(e.message);}};
+      const del=async(id)=>{if(!confirm('Delete this shift?'))return;try{await fetch(`/api/schedules/${id}`,{method:'DELETE'});load();}catch(e){setErr(e.message);}};
+      if(loading) return <div style={{color:'#9CA3AF',padding:12,fontSize:13}}>Loading schedules...</div>;
+      return (<div>
+        <div className="sh-hdr"><h2 className="sec-title" style={{margin:0}}>Shift Schedule<span className="badge-pg">Lakebase Postgres</span></h2><button className="btn btn-red" onClick={openAdd}>+ Add Shift</button></div>
+        {err&&<div className="err-box">Error: {err}</div>}
+        <table className="dtable"><thead><tr><th>Shift Name</th><th>Date</th><th>Start</th><th>End</th><th>Status</th><th style={{width:100}}>Actions</th></tr></thead>
+        <tbody>{list.map(s=>{const sd=s.shift_date||'';const st=s.start_time.length>5?s.start_time.slice(11,16):s.start_time.slice(0,5);const et=s.end_time.length>5?s.end_time.slice(11,16):s.end_time.slice(0,5);return(<tr key={s.id}><td style={{fontWeight:600,color:'#1F2937'}}>{s.shift_name}</td><td>{sd}</td><td>{st}</td><td>{et}</td><td><span className="act-badge"><span className={`act-dot ${s.is_active?'on':'off'}`}></span>{s.is_active?'Active':'Inactive'}</span></td><td><button className="btn-gh" onClick={()=>openEdit(s)}>Edit</button><button className="btn-del" onClick={()=>del(s.id)}>Delete</button></td></tr>);})}
+        {list.length===0&&<tr><td colSpan="6" style={{textAlign:'center',color:'#9CA3AF',padding:20}}>No shifts configured</td></tr>}</tbody></table>
+        <div className={`overlay ${open?'open':''}`} onClick={close}></div>
+        <div className={`panel ${open?'open':''}`}>
+          <div className="p-hdr"><h3>{eid?'Edit Shift':'Add Shift'}</h3><button className="p-close" onClick={close}>{'\u2715'}</button></div>
+          <form onSubmit={submit}><div className="p-body">
+            <div className="fld"><label>Shift Name</label><input value={f.shift_name} onChange={e=>setF({...f,shift_name:e.target.value})} placeholder="e.g. Day Shift" required/></div>
+            <div className="fld"><label>Shift Date</label><input type="date" value={f.shift_date} onChange={e=>setF({...f,shift_date:e.target.value})} required/></div>
+            <div className="fld-row"><div className="fld"><label>Start Time</label><input type="time" value={f.start_time} onChange={e=>setF({...f,start_time:e.target.value})} required/></div><div className="fld"><label>End Time</label><input type="time" value={f.end_time} onChange={e=>setF({...f,end_time:e.target.value})} required/></div></div>
+            <div className="fld"><label>Active</label><select value={f.is_active} onChange={e=>setF({...f,is_active:e.target.value==='true'})}><option value="true">Active</option><option value="false">Inactive</option></select></div>
+          </div><div className="p-foot"><button type="button" className="btn btn-out" onClick={close}>Cancel</button><button type="submit" className="btn btn-red">{eid?'Save Changes':'Add Shift'}</button></div></form>
+        </div>
+      </div>);
+    }
+
+    function App() {
+      const [data,setData]=useState(null),[error,setError]=useState(null),[last,setLast]=useState(null),[cd,setCd]=useState(30);
+      const [hourly,setHourly]=useState([]);
+      useEffect(()=>{ loadHourlyData().then(d=>setHourly(d||[])); },[]);
+      const fetch_=useCallback(async()=>{try{const r=await fetch('/api/metrics?v=2');const j=await r.json();if(j.error){setError(j.error);return;}setData(j.data);setError(null);setLast(new Date());setCd(30);}catch(e){setError(e.message);}},[]);
+      useEffect(()=>{fetch_();const iv=setInterval(fetch_,30000);return()=>clearInterval(iv);},[fetch_]);
+      useEffect(()=>{const iv=setInterval(()=>setCd(c=>Math.max(c-1,0)),1000);return()=>clearInterval(iv);},[]);
+      if(error) return <div className="container"><div className="err-box">Error: {error}</div></div>;
+      if(!data) return <div className="loading">Loading metrics...</div>;
+
+      const all=data.flatMap(r=>mkAlerts(r));
+      const worst=all.reduce((a,x)=>{const e=a.find(y=>y.metric===x.metric);const rk={bad:2,warn:1,good:0};if(!e||rk[x.level]>rk[e.level])return[...a.filter(y=>y.metric!==x.metric),x];return a;},[]);
+
+      const n=data.length||1;
+      const oee=data.reduce((s,r)=>s+(r.oee_pct||0),0)/n;
+      const av=data.reduce((s,r)=>s+(parseFloat(r.availability_pct)||0),0)/n;
+      const pf=data.reduce((s,r)=>s+(parseFloat(r.performance_pct)||0),0)/n;
+      const q=data.reduce((s,r)=>s+(parseFloat(r.quality_pct)||0),0)/n;
+
+      return (<div>
+        <div className="top-bar"><div className="top-bar-left">
+          <svg width="28" height="28" viewBox="0 0 36 36"><path d="M18 0L3.5 9v18L18 36l14.5-9V9L18 0z" fill="#FF3621"/><path d="M18 6.7L8.4 12.6v11.8L18 30.3l9.6-5.9V12.6L18 6.7z" fill="#fff"/><path d="M18 12.5l-5 3.1v6.2l5 3.1 5-3.1v-6.2l-5-3.1z" fill="#FF3621"/></svg>
+          <h1>Gripper Maintenance Monitor</h1>
+        </div><div className="live-ind"><div className="live-dot"></div>LIVE {last&&`\u00b7 ${last.toLocaleTimeString()}`} \u00b7 {cd}s</div></div>
+        <RobotStatusBar/>
+        <HealthScoreCard/>
+        <div className="container">
+          <div className="main-grid">
+          <div className="main-col">
+          {(() => { return (<div>
+              <div className="gauges">
+                <div className="g-card"><div className="g-label">OEE</div><Gauge value={oee} clr={color(oee,'oee')}/><div className="g-val" style={{color:color(oee,'oee')}}>{oee.toFixed(1)}%</div><div className="g-sub">Target ≥ {T.oee.warn}%</div></div>
+                <div className="g-card"><div className="g-label">Availability</div><Gauge value={av} clr={color(av,'availability')}/><div className="g-val" style={{color:color(av,'availability')}}>{av.toFixed(1)}%</div><div className="g-sub">Target ≥ {T.availability.warn}%</div></div>
+                <div className="g-card"><div className="g-label">Performance</div><Gauge value={pf} clr={color(pf,'performance')}/><div className="g-val" style={{color:color(pf,'performance')}}>{pf.toFixed(1)}%</div><div className="g-sub">Target ≥ {T.performance.warn}%</div></div>
+                <div className="g-card"><div className="g-label">Quality</div><Gauge value={q} clr={color(q,'quality')}/><div className="g-val" style={{color:color(q,'quality')}}>{q.toFixed(1)}%</div><div className="g-sub">Target ≥ {T.quality.warn}%</div></div>
+              </div>
+              <PhaseRing />
+              <TelemetryChart />
+              <CycleOverlay />
+              <JointHeatmap />
+            </div>); })()}
+
+          </div>
+          <div className="side-col"><DefectsPanel/><RecentCycles/></div>
+          </div>
+        </div>
+      </div>);
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
