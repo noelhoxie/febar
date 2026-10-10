@@ -57,6 +57,16 @@ Trained on 66 aggregate features from 6 joint sensors.
 ### Dashboard
 Lakeview dashboard with OEE gauges, cycle quality breakdowns, and hourly trend charts.
 
+### Genie Space (AI/BI Agent)
+Natural language query agent over `silver_cycle_metrics_v2` and `gold_operational_kpis`.
+Includes text instructions, 4 SQL examples, and entity matching on categorical columns.
+Space ID: `01f1c491058d10f1a5fdbb95f67c1fdf`
+
+### silver_cycle_metrics_v2 (Streaming Table)
+Single-pass streaming query combining cycle metrics, shift tagging, and AI classification
+(`ai_classify` v2.1). Definition extracted from the pipeline via `SHOW CREATE TABLE` — it was
+created inline through the pipeline UI rather than as a workspace file.
+
 ## Data Sources
 - `robot_demo_catalog.robot_demo.so101_joints` — IoT joint telemetry
 - `robot_demo_catalog.robot_demo.so101_snapshots` — Full payload snapshots

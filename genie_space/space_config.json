@@ -1,0 +1,56 @@
+{
+  "space_name": "Robotics Operational Performance",
+  "space_id": "01f1c491058d10f1a5fdbb95f67c1fdf",
+  "description": "Monitors robotic arm manufacturing operations \u2014 OEE KPIs, cycle quality, AI failure classification",
+  "run_as_type": "VIEWER",
+  "warehouse": "Serverless Starter Warehouse (6780d2ebf14114da)",
+  "tables": [
+    "robot_demo_catalog.robot_demo.silver_cycle_metrics_v2",
+    "robot_demo_catalog.robot_demo.gold_operational_kpis"
+  ],
+  "entity_matching": {
+    "silver_cycle_metrics_v2": [
+      "ai_failure_category",
+      "ai_rationale",
+      "arm_serial",
+      "cycle_quality",
+      "rotation_type",
+      "shift_name"
+    ],
+    "gold_operational_kpis": [
+      "arm_serial",
+      "shift_name"
+    ]
+  },
+  "instructions": {
+    "general": {
+      "space_purpose": "This space monitors robotic arm manufacturing operations. It tracks individual pick-and-place cycle performance and computes Overall Equipment Effectiveness (OEE) KPIs per arm and shift. Users are typically operations engineers, shift supervisors, and reliability analysts asking about arm performance, cycle quality, failure patterns, and OEE trends.",
+      "table_guidance": "Use gold_operational_kpis for aggregate questions about OEE, availability, performance, quality rates, and shift-level summaries. Use silver_cycle_metrics_v2 for cycle-level drill-downs such as individual cycle times, failure root causes, outlier analysis, and AI classification details. Join the two tables on arm_serial and shift_name when a question needs both aggregate KPIs and cycle-level detail.",
+      "oee_definition": "OEE (Overall Equipment Effectiveness) is stored in the oee_pct column of gold_operational_kpis. It is the product of three factors: Availability (availability_pct), Performance (performance_pct), and Quality (quality_pct). All percentage columns are on a 0-100 scale.",
+      "availability_performance_quality": "Availability = (run_time_sec / total_observed_sec) * 100. Performance = (ideal_cycle_time_sec * total_cycles / run_time_sec) * 100. Quality = (good_cycles / total_cycles) * 100. Defect rate is (defective_cycles / total_cycles) * 100.",
+      "shift_values": "shift_name contains exactly three values: 'Day Shift', 'Swing Shift', 'Night Shift'.",
+      "cycle_quality_and_failures": "cycle_quality is 'Good' or 'Bad'. ai_failure_category: 'normal_operation', 'mechanical_drift', 'incomplete_cycle', 'calibration_error'. ai_confidence (0-1) and ai_rationale provide classification details.",
+      "rotation_type_values": "rotation_type: '100 deg', '110 deg extra', or 'unknown'.",
+      "outlier_cycles": "is_cycle_time_outlier (boolean) in silver table. outlier_cycles (count) in gold table.",
+      "arm_identification": "Arms identified by arm_serial. 'arm', 'robot', 'robot arm' all mean arm_serial."
+    },
+    "sql_examples": [
+      {
+        "title": "What is the OEE for each shift today?",
+        "sql": "SELECT shift_name, ROUND(oee_pct, 2) AS oee_pct, ROUND(availability_pct, 2) AS availability_pct, ROUND(performance_pct, 2) AS performance_pct, ROUND(quality_pct, 2) AS quality_pct FROM robot_demo_catalog.robot_demo.gold_operational_kpis WHERE shift_date = CURRENT_DATE() ORDER BY shift_name"
+      },
+      {
+        "title": "What are the top failure categories by count?",
+        "sql": "SELECT ai_failure_category, COUNT(*) AS cycle_count, ROUND(AVG(ai_confidence), 2) AS avg_confidence FROM robot_demo_catalog.robot_demo.silver_cycle_metrics_v2 WHERE ai_failure_category != 'normal_operation' GROUP BY ai_failure_category ORDER BY cycle_count DESC"
+      },
+      {
+        "title": "What is the average cycle time by shift?",
+        "sql": "SELECT shift_name, ROUND(AVG(cycle_time_sec), 2) AS avg_cycle_time_sec, COUNT(*) AS total_cycles FROM robot_demo_catalog.robot_demo.silver_cycle_metrics_v2 GROUP BY shift_name ORDER BY shift_name"
+      },
+      {
+        "title": "Show me defective cycles with AI rationale",
+        "sql": "SELECT arm_serial, cycle_index, cycle_start, cycle_time_sec, ai_failure_category, ROUND(ai_confidence, 2) AS ai_confidence, ai_rationale FROM robot_demo_catalog.robot_demo.silver_cycle_metrics_v2 WHERE cycle_quality = 'Bad' ORDER BY cycle_start DESC LIMIT 20"
+      }
+    ]
+  }
+}
