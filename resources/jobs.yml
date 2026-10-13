@@ -1,0 +1,62 @@
+# Job resources — Lakeflow Jobs that orchestrate data into the catalog
+# The pipeline tasks push data through the medallion layers;
+# the ML notebook task trains and registers the drop quality model.
+
+resources:
+  jobs:
+    # ── Main orchestration workflow ─────────────────────────────────────────
+    febar_data_pipeline:
+      name: "FE Bar — Data Pipeline & ML"
+      description: >-
+        End-to-end workflow: runs the AI classification pipeline to populate
+        bronze → silver → gold tables in ${var.catalog}.${var.schema},
+        then retrains the drop quality ML model.
+
+      # ── Schedule: runs daily at 06:00 UTC ─────────────────────────────────
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: America/New_York
+        pause_status: PAUSED          # flip to UNPAUSED when ready
+
+      # ── Email notifications on failure ────────────────────────────────────
+      email_notifications:
+        on_failure:
+          - noel.hoxie@databricks.com
+
+      # ── Task definitions ──────────────────────────────────────────────────
+      tasks:
+        # Task 1: Run the Cycle AI Classification pipeline
+        - task_key: run_ai_classification_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.cycle_ai_classification.id}
+            full_refresh: false       # incremental by default
+
+        # Task 2: Train ML model (depends on pipeline completing)
+        - task_key: train_ml_model
+          depends_on:
+            - task_key: run_ai_classification_pipeline
+          notebook_task:
+            notebook_path: ../notebooks/SO101_Drop_Quality_ML_Model.ipynb
+            source: WORKSPACE
+          new_cluster:
+            spark_version: 16.2.x-ml-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 0
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+    # ── Lightweight pipeline-only refresh (no ML) ───────────────────────────
+    febar_pipeline_refresh:
+      name: "FE Bar — Pipeline Refresh Only"
+      description: >-
+        Quick refresh of the AI classification pipeline tables
+        without retraining the ML model.
+
+      tasks:
+        - task_key: refresh_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.cycle_ai_classification.id}
+            full_refresh: false

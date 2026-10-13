@@ -1,0 +1,35 @@
+# App resource — Gripper Maintenance Alert Monitor
+# Deploys the Flask dashboard that reads from the catalog tables
+# produced by the pipeline jobs above.
+
+resources:
+  apps:
+    gripper_maintenance_alert:
+      name: gripper-maintenance-alert
+      description: >-
+        Real-time monitoring dashboard for SO101 robot arm gripper operations.
+        Displays OEE gauges, AI defect classifications, telemetry charts,
+        and Lakebase-backed shift scheduling.
+      source_code_path: ../app
+
+      config:
+        command:
+          - python
+          - app.py
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value: ${var.warehouse_id}
+          - name: LAKEBASE_INSTANCE_NAME
+            value: ${var.lakebase_instance}
+
+      resources:
+        - name: gripper-maintenance-db
+          description: Lakebase PostgreSQL instance for shift schedules
+          database:
+            database_name: databricks_postgres
+            instance_name: ${var.lakebase_instance}
+            permission: CAN_CONNECT_AND_CREATE
+
+      permissions:
+        - user_name: noel.hoxie@databricks.com
+          level: CAN_MANAGE

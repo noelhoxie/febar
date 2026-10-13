@@ -7,6 +7,12 @@ built on Databricks Lakehouse.
 
 ```
 febar/
+├── databricks.yml                # DAB bundle config — variables, targets (dev/staging/prod)
+├── resources/
+│   ├── pipelines.yml             # Pipeline definitions → push data into UC catalog
+│   ├── jobs.yml                  # Job workflows → orchestrate pipeline + ML training
+│   └── app.yml                   # App deployment → Gripper Maintenance Monitor
+│
 ├── app/                          # Databricks App — Gripper Maintenance Monitor
 │   ├── app.py                    # Flask backend (APIs for telemetry, OEE, schedules)
 │   ├── app.yaml                  # App deployment config
@@ -29,6 +35,7 @@ febar/
 │           ├── bronze_all_events.sql         # (deprecated)
 │           ├── silver_cycle_metrics.sql      # Deterministic cycle metrics + shift tagging
 │           ├── silver_cycle_classified.sql   # AI classification via ai_classify
+│           ├── silver_cycle_metrics_v2.sql   # Streaming table with combined metrics + AI
 │           └── gold_cycle_classifications.sql # OEE KPIs with AI quality scoring
 │
 ├── notebooks/
@@ -37,6 +44,28 @@ febar/
 └── dashboards/
     └── Gripper_OEE_Dashboard.lvdash.json  # AI/BI Dashboard: OEE metrics visualization
 ```
+
+## Deploying with Declarative Automation Bundles
+
+```bash
+# Validate the bundle configuration
+databricks bundle validate --target dev
+
+# Deploy to dev (creates pipelines, jobs, and app in your workspace)
+databricks bundle deploy --target dev
+
+# Run the main data pipeline job
+databricks bundle run febar_data_pipeline --target dev
+
+# Deploy to production
+databricks bundle deploy --target prod
+```
+
+The bundle YAML files in `resources/` define how data flows into the catalog:
+- **pipelines.yml** — Declares the SDP pipelines that push streaming and batch data
+  through bronze→silver→gold layers into `robot_demo_catalog.robot_demo`
+- **jobs.yml** — Orchestrates the pipeline refresh + ML model retraining as a scheduled workflow
+- **app.yml** — Deploys the monitoring dashboard app with Lakebase connectivity
 
 ## Components
 

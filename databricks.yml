@@ -1,0 +1,47 @@
+# FE Bar — Robot Gripper Monitoring Platform
+# Declarative Automation Bundle configuration
+# Deploy with: databricks bundle deploy --target <target>
+
+bundle:
+  name: febar
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for all pipeline output tables
+    default: robot_demo_catalog
+  schema:
+    description: Schema within the catalog for all tables
+    default: robot_demo
+  warehouse_id:
+    description: SQL warehouse ID for dashboard and query execution
+    default: "6780d2ebf14114da"
+  lakebase_instance:
+    description: Lakebase instance name for shift schedule data
+    default: gripper-maintenance
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://fevm-robot-demo.cloud.databricks.com
+
+  staging:
+    workspace:
+      host: https://fevm-robot-demo.cloud.databricks.com
+    variables:
+      catalog: robot_demo_catalog
+      schema: robot_demo_staging
+
+  prod:
+    mode: production
+    workspace:
+      host: https://fevm-robot-demo.cloud.databricks.com
+    variables:
+      catalog: robot_demo_catalog
+      schema: robot_demo
+    run_as:
+      user_name: noel.hoxie@databricks.com

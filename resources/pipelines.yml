@@ -1,0 +1,48 @@
+# Pipeline resources — Lakeflow Spark Declarative Pipelines
+# These definitions push data through bronze → silver → gold into Unity Catalog
+
+resources:
+  pipelines:
+    # ── Pipeline 1: Gripper Cycle Count (legacy, kept as reference) ──────────
+    gripper_cycle_count:
+      name: "Gripper Cycle Count Pipeline"
+      catalog: ${var.catalog}
+      target: ${var.schema}
+      photon: true
+      serverless: true
+      channel: CURRENT
+      libraries:
+        - file:
+            path: ../pipelines/gripper_cycle_count/transformations/bronze_gripper_events.sql
+        - file:
+            path: ../pipelines/gripper_cycle_count/transformations/bronze_gripper_all_events.sql
+        - file:
+            path: ../pipelines/gripper_cycle_count/transformations/silver_gripper_cycle_counts.sql
+        - file:
+            path: ../pipelines/gripper_cycle_count/transformations/gold_gripper_operational_metrics.sql
+      configuration:
+        # Source table for bronze streaming ingestion
+        source_table: "${var.catalog}.${var.schema}.so101_joints"
+
+    # ── Pipeline 2: Cycle AI Classification (active) ────────────────────────
+    cycle_ai_classification:
+      name: "Cycle AI Classification Pipeline"
+      catalog: ${var.catalog}
+      target: ${var.schema}
+      photon: true
+      serverless: true
+      channel: CURRENT
+      libraries:
+        - file:
+            path: ../pipelines/cycle_ai_classification/transformations/silver_cycle_metrics.sql
+        - file:
+            path: ../pipelines/cycle_ai_classification/transformations/silver_cycle_classified.sql
+        - file:
+            path: ../pipelines/cycle_ai_classification/transformations/silver_cycle_metrics_v2.sql
+        - file:
+            path: ../pipelines/cycle_ai_classification/transformations/gold_cycle_classifications.sql
+      configuration:
+        # Source table: full payload snapshots with VARIANT data
+        source_table: "${var.catalog}.${var.schema}.so101_snapshots"
+        # Lakebase CDF table for shift schedule
+        shift_table: "${var.catalog}.${var.schema}.lb_shift_schedule_history"
